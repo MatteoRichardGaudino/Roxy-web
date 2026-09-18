@@ -324,8 +324,6 @@ class RoxyApp {
       badgesContainer.innerHTML = `
         <span class="badge-indigo">${typeLabel}</span>
         <span class="badge-rating">★ ${rating}</span>
-        <span class="badge-quality">4K ULTRA HD</span>
-        <span class="badge-quality">5.1 SURROUND</span>
         ${year ? `<span style="color: var(--text-med); font-weight: 600;">${year}</span>` : ''}
       `;
     }
@@ -639,7 +637,6 @@ class RoxyApp {
           <span class="badge-indigo">${mediaType === 'tv' ? 'SERIE TV' : 'FILM'}</span>
           ${!isAvailable ? `<span class="badge-unavailable">NON DISPONIBILE</span>` : ''}
           <span class="badge-rating">★ ${rating}</span>
-          <span class="badge-quality">4K HDR</span>
           ${duration ? `<span class="badge-quality">${duration}</span>` : ''}
           ${year ? `<span style="color: var(--text-med); font-weight: 600;">${year}</span>` : ''}
         `;
