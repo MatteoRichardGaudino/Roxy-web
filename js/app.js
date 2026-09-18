@@ -688,6 +688,26 @@ class RoxyApp {
       };
     }
 
+    // "Rimuovi da Continua a guardare" Button Handler
+    const btnRemoveContinue = document.getElementById('modal-btn-remove-continue');
+    const isContinueWatching = StorageService.getItemProgress(data.id) !== null;
+    if (btnRemoveContinue) {
+      if (isContinueWatching) {
+        btnRemoveContinue.style.display = 'inline-flex';
+        btnRemoveContinue.onclick = () => {
+          StorageService.removeContinueWatching(data.id);
+          btnRemoveContinue.style.display = 'none';
+          this.showToast(`"${data.title || data.name}" rimosso da Continua a guardare`);
+          this.renderContinueWatchingRow();
+          if (btnPlay) {
+            window.navigatorInstance.setFocus(btnPlay);
+          }
+        };
+      } else {
+        btnRemoveContinue.style.display = 'none';
+      }
+    }
+
     // Show modal & set focus trap
     modal.classList.add('active');
     window.navigatorInstance.setModal(true, modal);

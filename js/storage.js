@@ -63,6 +63,17 @@ const StorageService = {
     }
   },
 
+  removeContinueWatching(id) {
+    try {
+      const list = this.getContinueWatching().filter(i => i.id !== Number(id));
+      localStorage.setItem(this.KEYS.CONTINUE_WATCHING, JSON.stringify(list));
+      return true;
+    } catch (e) {
+      console.error('Storage remove error:', e);
+      return false;
+    }
+  },
+
   // Watchlist
   getWatchlist() {
     try {
