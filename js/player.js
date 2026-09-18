@@ -44,6 +44,9 @@ const PlayerController = {
     if (this.videoEl && this.videoEl.style.display !== 'none' && this.videoEl.currentTime > 0) {
       return Math.floor(this.videoEl.currentTime);
     }
+    if (this.hasReceivedIframeEvent && this.currentSessionTime !== null && this.currentSessionTime !== undefined) {
+      return this.currentSessionTime;
+    }
     const elapsedSec = this.playStartTime ? Math.max(0, Math.floor((Date.now() - this.playStartTime) / 1000)) : 0;
     const computedSec = (this.initialResumeSec || 0) + elapsedSec;
     return Math.max(this.currentSessionTime || 0, computedSec);
@@ -75,32 +78,70 @@ const PlayerController = {
       return;
     }
 
-    let currentTime = null;
-    let duration = null;
-
-    if (msgData.type === 'ROXY_PLAYBACK_PROGRESS') {
-      currentTime = Number(msgData.currentTime);
-      duration = Number(msgData.duration);
-      this.hideLoadingCurtain();
-    } else if (msgData.type === 'PLAYER_EVENT') {
+    // Official VixSrc Player Event Tracking:
+    // { type: "PLAYER_EVENT", data: { event: "play"|"pause"|"seeked"|"ended"|"timeupdate", currentTime, duration, video_id } }
+    if (msgData.type === 'PLAYER_EVENT' && msgData.data) {
       const data = msgData.data;
-      if (data && (data.event === 'timeupdate' || data.event === 'seeked' || data.event === 'pause' || data.event === 'play')) {
-        if (data.currentTime !== undefined && !isNaN(data.currentTime) && Number(data.currentTime) > 0) {
-          currentTime = Number(data.currentTime);
-        }
-        if (data.duration !== undefined && !isNaN(data.duration) && Number(data.duration) > 0) {
-          duration = Number(data.duration);
-        }
-        this.hideLoadingCurtain();
+      const eventName = data.event;
+      const currTime = (typeof data.currentTime === 'number' && !isNaN(data.currentTime)) ? Math.floor(data.currentTime) : null;
+      const dur = (typeof data.duration === 'number' && !isNaN(data.duration) && data.duration > 0) ? Math.floor(data.duration) : null;
+
+      this.hasReceivedIframeEvent = true;
+      this.hideLoadingCurtain();
+
+      if (dur !== null && dur > 0) {
+        this.estimatedDuration = dur;
       }
+
+      if (currTime !== null && currTime >= 0) {
+        this.currentSessionTime = currTime;
+        this.updateProgressDisplay(this.currentSessionTime, this.estimatedDuration);
+      }
+
+      if (eventName === 'play') {
+        this.isPlaying = true;
+        this.updatePlayBtnIcon();
+      } else if (eventName === 'pause') {
+        this.isPlaying = false;
+        this.updatePlayBtnIcon();
+        if (this.currentSessionTime > 0) {
+          StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
+        }
+      } else if (eventName === 'seeked') {
+        if (this.currentSessionTime >= 0) {
+          console.log(`[Roxy Player] VixSrc seeked event received at: ${this.currentSessionTime}s`);
+          StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
+        }
+      } else if (eventName === 'ended') {
+        this.isPlaying = false;
+        this.onEnded();
+        if (this.estimatedDuration > 0) {
+          StorageService.saveWatchProgress(this.currentItem, this.estimatedDuration, this.estimatedDuration);
+        }
+      } else if (eventName === 'timeupdate') {
+        const now = Date.now();
+        if (!this.lastProgressSave || (now - this.lastProgressSave > 3500)) {
+          this.lastProgressSave = now;
+          if (this.currentSessionTime > 0) {
+            StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
+          }
+        }
+      }
+      return;
     }
 
-    if (currentTime !== null && !isNaN(currentTime) && currentTime > 0) {
-      this.currentSessionTime = Math.floor(currentTime);
-      this.initialResumeSec = this.currentSessionTime;
-      this.playStartTime = Date.now();
-      if (duration !== null && !isNaN(duration) && duration > 0) {
-        this.estimatedDuration = Math.floor(duration);
+    // Custom injected ROXY playback progress (e.g. clean webOS JWPlayer embed)
+    if (msgData.type === 'ROXY_PLAYBACK_PROGRESS') {
+      const currTime = Number(msgData.currentTime);
+      const dur = Number(msgData.duration);
+      this.hasReceivedIframeEvent = true;
+      this.hideLoadingCurtain();
+
+      if (!isNaN(currTime) && currTime >= 0) {
+        this.currentSessionTime = Math.floor(currTime);
+      }
+      if (!isNaN(dur) && dur > 0) {
+        this.estimatedDuration = Math.floor(dur);
       }
       StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
       this.updateProgressDisplay(this.currentSessionTime, this.estimatedDuration);
@@ -213,6 +254,8 @@ const PlayerController = {
   play(item, customStreamUrl = null, explicitResumeTime = null) {
     this.currentItem = item;
     this.isActive = true;
+    this.hasReceivedIframeEvent = false;
+    this.lastProgressSave = 0;
     window.navigatorInstance.setPlayerActive(true);
 
     try {
