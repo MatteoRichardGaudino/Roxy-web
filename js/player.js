@@ -33,6 +33,11 @@ const PlayerController = {
     // Listen to window navigation and close events to flush progress
     window.addEventListener('beforeunload', () => this.flushSessionProgress());
     window.addEventListener('pagehide', () => this.flushSessionProgress());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        this.flushSessionProgress();
+      }
+    });
     window.addEventListener('popstate', () => {
       if (this.isActive) {
         this.close();
@@ -76,27 +81,74 @@ const PlayerController = {
       return;
     }
 
-    // Extract payload from either { type: "PLAYER_EVENT", data: {...} }, stringified JSON, or flat event object
-    let data = (msgData.type === 'PLAYER_EVENT' && msgData.data) ? msgData.data : msgData;
-    if (typeof data === 'string') {
-      try { data = JSON.parse(data); } catch (err) {}
+    // Extract payload from either:
+    // - VixSrc Web Next.js wrapper: { type: "PLAYER_EVENT", event: { event: "timeupdate", currentTime, duration, ... } }
+    // - VixSrc direct embed: { type: "PLAYER_EVENT", data: { event: "timeupdate", currentTime, duration, ... } }
+    // - Roxy webOS custom script: { type: "ROXY_PLAYBACK_PROGRESS", currentTime, duration }
+    // - Flat event object: { event: "timeupdate", currentTime, duration }
+    let payload = msgData;
+    if (msgData.type === 'PLAYER_EVENT') {
+      if (msgData.event && typeof msgData.event === 'object') {
+        payload = msgData.event;
+      } else if (msgData.data && typeof msgData.data === 'object') {
+        payload = msgData.data;
+      } else if (typeof msgData.event === 'string') {
+        try {
+          const parsed = JSON.parse(msgData.event);
+          if (parsed && typeof parsed === 'object') payload = parsed;
+        } catch (err) {}
+      } else if (typeof msgData.data === 'string') {
+        try {
+          const parsed = JSON.parse(msgData.data);
+          if (parsed && typeof parsed === 'object') payload = parsed;
+        } catch (err) {}
+      }
+    } else if (msgData.data && typeof msgData.data === 'object') {
+      payload = msgData.data;
     }
 
-    if (!data || typeof data !== 'object') return;
+    if (typeof payload === 'string') {
+      try { payload = JSON.parse(payload); } catch (err) {}
+    }
 
-    const eventName = (data.event || msgData.event || msgData.type || '').toLowerCase();
-    const rawCurrTime = (data.currentTime !== undefined) ? data.currentTime : 
-                        ((data.position !== undefined) ? data.position : 
-                        ((data.time !== undefined) ? data.time : 
-                        ((msgData.currentTime !== undefined) ? msgData.currentTime : 
-                        ((msgData.position !== undefined) ? msgData.position : null))));
-    const rawDur = (data.duration !== undefined) ? data.duration : (msgData.duration !== undefined ? msgData.duration : null);
+    if (!payload || typeof payload !== 'object') return;
+
+    // Safely determine eventName (must always be a string before .toLowerCase())
+    let rawEventName = '';
+    if (typeof payload.event === 'string') {
+      rawEventName = payload.event;
+    } else if (typeof msgData.event === 'string') {
+      rawEventName = msgData.event;
+    } else if (typeof payload.type === 'string') {
+      rawEventName = payload.type;
+    } else if (typeof msgData.type === 'string') {
+      rawEventName = msgData.type;
+    }
+    const eventName = rawEventName.toLowerCase();
+
+    // Safely extract currentTime and duration from all known locations
+    let rawCurrTime = null;
+    if (payload.currentTime !== undefined) rawCurrTime = payload.currentTime;
+    else if (payload.position !== undefined) rawCurrTime = payload.position;
+    else if (payload.time !== undefined) rawCurrTime = payload.time;
+    else if (payload.data && payload.data.currentTime !== undefined) rawCurrTime = payload.data.currentTime;
+    else if (payload.data && payload.data.position !== undefined) rawCurrTime = payload.data.position;
+    else if (msgData.currentTime !== undefined) rawCurrTime = msgData.currentTime;
+    else if (msgData.position !== undefined) rawCurrTime = msgData.position;
+    else if (msgData.time !== undefined) rawCurrTime = msgData.time;
+    else if (msgData.data && msgData.data.currentTime !== undefined) rawCurrTime = msgData.data.currentTime;
+
+    let rawDur = null;
+    if (payload.duration !== undefined) rawDur = payload.duration;
+    else if (payload.data && payload.data.duration !== undefined) rawDur = payload.data.duration;
+    else if (msgData.duration !== undefined) rawDur = msgData.duration;
+    else if (msgData.data && msgData.data.duration !== undefined) rawDur = msgData.data.duration;
 
     const currTime = (rawCurrTime !== null && !isNaN(Number(rawCurrTime))) ? Math.floor(Number(rawCurrTime)) : null;
     const dur = (rawDur !== null && !isNaN(Number(rawDur)) && Number(rawDur) > 0) ? Math.floor(Number(rawDur)) : null;
 
     if (eventName || currTime !== null) {
-      console.log(`[Roxy Player Message] Event: ${eventName}, Time: ${currTime}s, Dur: ${dur}s`);
+      console.log(`[Roxy Player Message] Event: ${eventName || 'progress'}, Time: ${currTime}s, Dur: ${dur}s`);
     }
 
     if (currTime !== null && currTime >= 0) {
@@ -130,7 +182,7 @@ const PlayerController = {
       if (this.estimatedDuration > 0) {
         StorageService.saveWatchProgress(this.currentItem, this.estimatedDuration, this.estimatedDuration);
       }
-    } else if (eventName === 'timeupdate' || eventName === 'time' || eventName === 'roxy_playback_progress') {
+    } else if (eventName === 'timeupdate' || eventName === 'time' || eventName === 'roxy_playback_progress' || (currTime !== null && !['play', 'pause', 'seeked', 'seek', 'ended'].includes(eventName))) {
       const now = Date.now();
       if (!this.lastProgressSave || (now - this.lastProgressSave > 3000)) {
         this.lastProgressSave = now;
@@ -267,17 +319,22 @@ const PlayerController = {
     let episode = item.episode;
 
     // If TV show has no explicit season/episode, check saved progress to resume last watched episode
-    if (isTv && (!season || !episode)) {
-      const lastSaved = StorageService.getItemProgress(item.id);
-      if (lastSaved && lastSaved.season && lastSaved.episode) {
-        season = Number(lastSaved.season);
-        episode = Number(lastSaved.episode);
-      } else {
-        season = season || 1;
-        episode = episode || 1;
+    if (isTv) {
+      if (!season || !episode) {
+        const lastSaved = StorageService.getItemProgress(item.id);
+        if (lastSaved && lastSaved.season && lastSaved.episode) {
+          season = Number(lastSaved.season);
+          episode = Number(lastSaved.episode);
+        } else {
+          season = season || 1;
+          episode = episode || 1;
+        }
       }
+      season = Number(season) || 1;
+      episode = Number(episode) || 1;
       item.season = season;
       item.episode = episode;
+      item.media_type = 'tv';
     }
 
     // Check for saved resume position if not explicitly passed

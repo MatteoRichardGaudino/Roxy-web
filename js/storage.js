@@ -56,7 +56,7 @@ const StorageService = {
         if (positions[mediaId]) {
           const p = positions[mediaId];
           if (season === null && episode === null) return p;
-          if (p.season === season && p.episode === episode) return p;
+          if (Number(p.season) === Number(season) && Number(p.episode) === Number(episode)) return p;
         }
       }
 
@@ -225,7 +225,11 @@ const StorageService = {
           const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
           const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
           for (const item of cloudContinue) {
-            positions[String(item.id)] = item;
+            const mId = String(item.id);
+            positions[mId] = item;
+            if (item.season && item.episode) {
+              positions[`${mId}_s${item.season}_e${item.episode}`] = item;
+            }
           }
           localStorage.setItem(positionsKey, JSON.stringify(positions));
         } catch (err) {}
