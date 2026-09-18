@@ -176,6 +176,72 @@
   display: block;
 }
 
+/* Page Section Headers (Film, Serie TV, La Mia Lista, Cerca) */
+.section-page-header {
+  padding: 120px 60px 24px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.page-title {
+  font-size: 2.4rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.5px;
+}
+
+.page-subtitle {
+  font-size: 1.1rem;
+  color: var(--text-med);
+}
+
+.search-header-panel {
+  padding: 120px 60px 24px 60px;
+  display: flex;
+  align-items: center;
+}
+
+.search-input-field {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  font-size: 1.4rem;
+  font-weight: 600;
+  outline: none;
+  cursor: text;
+}
+
+.watchlist-grid {
+  padding: 0 60px 60px 60px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 28px;
+}
+
+.empty-state, .search-hint {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  text-align: center;
+  color: var(--text-med);
+}
+
+.empty-icon, .hint-icon {
+  font-size: 3.5rem;
+  margin-bottom: 16px;
+}
+
+.empty-state h3 {
+  font-size: 1.5rem;
+  color: #ffffff;
+  margin-bottom: 8px;
+}
+
 /* ==========================================================================
    Hero Billboard Section (Netflix-Style)
    ========================================================================== */
@@ -1463,6 +1529,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 60px 20px;
+  overflow-y: auto;
+  box-sizing: border-box;
   animation: fadeIn 0.3s ease;
 }
 
@@ -1470,6 +1539,7 @@
   text-align: center;
   max-width: 1000px;
   width: 90%;
+  margin: auto;
 }
 
 .profile-modal-title {
@@ -1774,10 +1844,26 @@
 
 .emoji-btn:hover,
 .emoji-btn.focus-active,
-.emoji-btn.active {
+.emoji-btn.active,
+.settings-emoji-btn:hover,
+.settings-emoji-btn.focus-active,
+.settings-emoji-btn.active {
   background: rgba(99, 102, 241, 0.3);
   border-color: var(--primary-indigo-light);
   transform: scale(1.1);
+}
+
+.settings-emoji-btn {
+  height: 52px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  font-size: 1.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s, border-color 0.2s, background 0.2s;
 }
 
 .form-actions {
@@ -1786,6 +1872,101 @@
   justify-content: flex-end;
   gap: 14px;
   margin-top: 10px;
+}
+
+/* Profile Settings Modal */
+.profile-settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 270;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  animation: fadeIn 0.25s ease;
+}
+
+.profile-settings-container {
+  background: rgba(18, 18, 30, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-xl);
+  padding: 36px 44px;
+  max-width: 560px;
+  width: 90%;
+  margin: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(99, 102, 241, 0.15);
+  position: relative;
+}
+
+.profile-settings-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.settings-avatar-big {
+  width: 72px;
+  height: 72px;
+  min-width: 72px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, rgba(30, 30, 48, 0.8) 0%, rgba(15, 15, 25, 0.9) 100%);
+  border: 2px solid var(--primary-indigo-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.4rem;
+  box-shadow: 0 0 20px var(--primary-indigo-glow);
+}
+
+.settings-title {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin-bottom: 4px;
+}
+
+.settings-sub {
+  font-size: 0.95rem;
+  color: var(--text-med);
+}
+
+.settings-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.btn-danger-glass {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: var(--radius-full);
+  color: #fca5a5;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-danger-glass:hover,
+.btn-danger-glass.focus-active {
+  background: rgba(239, 68, 68, 0.35);
+  border-color: #ef4444;
+  color: #ffffff;
+  transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
 }
 
 @keyframes shake {

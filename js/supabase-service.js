@@ -143,6 +143,50 @@ const SupabaseService = {
     return profile;
   },
 
+  async updateProfile(profileId, updates = {}) {
+    const payload = {};
+    if (updates.username) payload.username = String(updates.username).trim();
+    if (updates.avatar_emoji) payload.avatar_emoji = updates.avatar_emoji;
+    if (updates.pin) {
+      if (!/^\d{4}$/.test(String(updates.pin).trim())) {
+        throw new Error('Il PIN deve essere di 4 cifre.');
+      }
+      payload.pin_hash = await this.hashPin(String(updates.pin).trim());
+    }
+
+    const updated = await this.restRequest(`profiles?id=eq.${profileId}`, {
+      method: 'PATCH',
+      headers: { 'Prefer': 'return=representation' },
+      body: JSON.stringify(payload)
+    });
+
+    const user = updated && updated[0] ? updated[0] : null;
+    if (user && this.activeUser && this.activeUser.id === profileId) {
+      this.setActiveUser({
+        ...this.activeUser,
+        username: user.username,
+        avatar_emoji: user.avatar_emoji
+      });
+    }
+    return user;
+  },
+
+  async deleteProfile(profileId) {
+    await this.restRequest(`profiles?id=eq.${profileId}`, {
+      method: 'DELETE'
+    });
+
+    if (this.activeUser && this.activeUser.id === profileId) {
+      this.logout();
+    }
+    // Clean local storage cache for that user
+    try {
+      localStorage.removeItem(`roxy_continue_watching_${profileId}`);
+      localStorage.removeItem(`roxy_watchlist_${profileId}`);
+    } catch (e) {}
+    return true;
+  },
+
   getActiveUser() {
     if (this.activeUser) return this.activeUser;
     try {
@@ -207,7 +251,7 @@ const SupabaseService = {
     };
 
     try {
-      await this.restRequest('watch_progress', {
+      await this.restRequest('watch_progress?on_conflict=user_id,media_id,season,episode', {
         method: 'POST',
         headers: { 'Prefer': 'resolution=merge-duplicates' },
         body: JSON.stringify(payload)
@@ -222,7 +266,7 @@ const SupabaseService = {
     if (!user || !user.id) return [];
 
     try {
-      const rows = await this.restRequest(`watch_progress?user_id=eq.${user.id}&progress=gt.5&progress=lt.95&order=updated_at.desc&limit=25`);
+      const rows = await this.restRequest(`watch_progress?user_id=eq.${user.id}&progress=lt.95&order=updated_at.desc&limit=25`);
       if (!Array.isArray(rows)) return [];
       return rows.map(r => ({
         id: r.media_id,
@@ -256,7 +300,7 @@ const SupabaseService = {
     if (!user || !user.id || !item || !item.id) return;
 
     try {
-      await this.restRequest('watchlist', {
+      await this.restRequest('watchlist?on_conflict=user_id,media_id', {
         method: 'POST',
         headers: { 'Prefer': 'resolution=merge-duplicates' },
         body: JSON.stringify({

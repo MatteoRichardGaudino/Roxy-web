@@ -43,7 +43,9 @@ class RoxyApp {
     const activeUser = SupabaseService.getActiveUser();
     if (activeUser) {
       this.updateHeaderProfileBadge(activeUser);
-      StorageService.syncFromCloud().catch(() => {});
+      StorageService.syncFromCloud().then(() => {
+        this.renderContinueWatchingRow();
+      }).catch(() => {});
     } else {
       setTimeout(() => this.showProfileSelectorModal(), 400);
     }
@@ -894,7 +896,13 @@ class RoxyApp {
   bindProfileEvents() {
     const profileBtn = document.getElementById('nav-profile-btn');
     if (profileBtn) {
-      profileBtn.addEventListener('click', () => this.showProfileSelectorModal());
+      profileBtn.addEventListener('click', () => {
+        if (SupabaseService.getActiveUser()) {
+          this.showProfileSettingsModal();
+        } else {
+          this.showProfileSelectorModal();
+        }
+      });
     }
 
     const btnOpenCreate = document.getElementById('btn-open-create-profile');
@@ -907,14 +915,27 @@ class RoxyApp {
       btnCancelCreate.addEventListener('click', () => this.closeCreateProfileModal());
     }
 
-    // Emoji Picker
+    // Create Profile Emoji Picker
     this.selectedNewEmoji = '🍿';
-    const emojiBtns = document.querySelectorAll('.emoji-btn');
+    const emojiBtns = document.querySelectorAll('#emoji-picker .emoji-btn');
     emojiBtns.forEach(btn => {
       btn.addEventListener('click', () => {
         emojiBtns.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         this.selectedNewEmoji = btn.getAttribute('data-emoji') || '🍿';
+      });
+    });
+
+    // Settings Profile Emoji Picker
+    this.selectedSettingsEmoji = '🍿';
+    const settingsEmojiBtns = document.querySelectorAll('#settings-emoji-picker .settings-emoji-btn');
+    settingsEmojiBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        settingsEmojiBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.selectedSettingsEmoji = btn.getAttribute('data-emoji') || '🍿';
+        const avatarBig = document.getElementById('settings-current-avatar');
+        if (avatarBig) avatarBig.textContent = this.selectedSettingsEmoji;
       });
     });
 
@@ -924,11 +945,32 @@ class RoxyApp {
       btnSubmitCreate.addEventListener('click', () => this.handleCreateProfileSubmit());
     }
 
+    // Profile Settings Buttons
+    const btnCloseSettings = document.getElementById('btn-close-profile-settings');
+    if (btnCloseSettings) {
+      btnCloseSettings.addEventListener('click', () => this.closeProfileSettingsModal());
+    }
+
+    const btnSaveSettings = document.getElementById('btn-settings-save');
+    if (btnSaveSettings) {
+      btnSaveSettings.addEventListener('click', () => this.handleProfileSettingsSave());
+    }
+
+    const btnSwitchUser = document.getElementById('btn-settings-switch-user');
+    if (btnSwitchUser) {
+      btnSwitchUser.addEventListener('click', () => this.handleProfileSwitch());
+    }
+
+    const btnDeleteProfile = document.getElementById('btn-settings-delete-profile');
+    if (btnDeleteProfile) {
+      btnDeleteProfile.addEventListener('click', () => this.handleProfileDelete());
+    }
+
     // PIN Numpad
     this.currentPinInput = '';
     this.selectedTargetProfile = null;
 
-    const numpadBtns = document.querySelectorAll('.numpad-btn[data-num]');
+    const numpadBtns = document.querySelectorAll('.numpad-grid .numpad-btn[data-num]');
     numpadBtns.forEach(btn => {
       btn.addEventListener('click', () => {
         const num = btn.getAttribute('data-num');
@@ -1173,6 +1215,130 @@ class RoxyApp {
         errorMsg.style.display = 'block';
       }
     }
+  }
+
+  // Profile Settings Modal
+  showProfileSettingsModal() {
+    const user = SupabaseService.getActiveUser();
+    if (!user) {
+      this.showProfileSelectorModal();
+      return;
+    }
+
+    const modal = document.getElementById('profile-settings-modal');
+    const avatarEl = document.getElementById('settings-current-avatar');
+    const titleEl = document.getElementById('settings-title-username');
+    const nameInput = document.getElementById('settings-profile-name');
+    const pinInput = document.getElementById('settings-profile-pin');
+    const errorMsg = document.getElementById('settings-profile-error');
+
+    if (!modal) return;
+
+    this.selectedSettingsEmoji = user.avatar_emoji || '🍿';
+    if (avatarEl) avatarEl.textContent = this.selectedSettingsEmoji;
+    if (titleEl) titleEl.textContent = `Profilo di ${user.username}`;
+    if (nameInput) nameInput.value = user.username || '';
+    if (pinInput) pinInput.value = '';
+    if (errorMsg) errorMsg.style.display = 'none';
+
+    const emojiBtns = document.querySelectorAll('#settings-emoji-picker .settings-emoji-btn');
+    emojiBtns.forEach(btn => {
+      if (btn.getAttribute('data-emoji') === this.selectedSettingsEmoji) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+
+    modal.style.display = 'flex';
+    window.navigatorInstance.setModal(true, modal);
+
+    if (nameInput) window.navigatorInstance.setFocus(nameInput);
+  }
+
+  closeProfileSettingsModal() {
+    const modal = document.getElementById('profile-settings-modal');
+    if (modal) {
+      modal.style.display = 'none';
+      window.navigatorInstance.setModal(false, null);
+    }
+  }
+
+  async handleProfileSettingsSave() {
+    const user = SupabaseService.getActiveUser();
+    if (!user) return;
+
+    const nameInput = document.getElementById('settings-profile-name');
+    const pinInput = document.getElementById('settings-profile-pin');
+    const errorMsg = document.getElementById('settings-profile-error');
+
+    const newName = nameInput ? nameInput.value.trim() : '';
+    const newPin = pinInput ? pinInput.value.trim() : '';
+    const newEmoji = this.selectedSettingsEmoji || user.avatar_emoji || '🍿';
+
+    if (errorMsg) errorMsg.style.display = 'none';
+
+    const updates = {};
+    if (newName && newName !== user.username) {
+      updates.username = newName;
+    }
+    if (newEmoji && newEmoji !== user.avatar_emoji) {
+      updates.avatar_emoji = newEmoji;
+    }
+    if (newPin) {
+      if (!/^\d{4}$/.test(newPin)) {
+        if (errorMsg) {
+          errorMsg.textContent = 'Il PIN deve essere composto esattamente da 4 cifre numeriche.';
+          errorMsg.style.display = 'block';
+        }
+        return;
+      }
+      updates.pin = newPin;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      this.closeProfileSettingsModal();
+      return;
+    }
+
+    try {
+      const updatedUser = await SupabaseService.updateProfile(user.id, updates);
+      this.updateHeaderProfileBadge(updatedUser || SupabaseService.getActiveUser());
+      this.closeProfileSettingsModal();
+      this.showToast('Profilo aggiornato con successo! ✨');
+    } catch (e) {
+      if (errorMsg) {
+        errorMsg.textContent = e.message || 'Errore durante l\'aggiornamento del profilo.';
+        errorMsg.style.display = 'block';
+      }
+    }
+  }
+
+  async handleProfileDelete() {
+    const user = SupabaseService.getActiveUser();
+    if (!user) return;
+
+    const confirmed = window.confirm(`Sei sicuro di voler eliminare definitivamente il profilo di "${user.username}"? Questa operazione è irreversibile.`);
+    if (!confirmed) return;
+
+    try {
+      await SupabaseService.deleteProfile(user.id);
+      this.closeProfileSettingsModal();
+      this.updateHeaderProfileBadge(null);
+      this.showToast('Profilo eliminato con successo.');
+      this.renderContinueWatchingRow();
+      if (this.currentSection === 'watchlist') {
+        this.renderWatchlist();
+      }
+      this.showProfileSelectorModal();
+    } catch (e) {
+      this.showToast(`Errore eliminazione: ${e.message}`);
+    }
+  }
+
+  handleProfileSwitch() {
+    this.closeProfileSettingsModal();
+    this.showProfileSelectorModal();
   }
 
   async onUserLogin(user) {
