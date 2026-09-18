@@ -21,6 +21,7 @@ const PlayerController = {
     this.timeCurrentEl = document.getElementById('osd-time-current');
     this.timeDurationEl = document.getElementById('osd-time-duration');
     this.progressBar = document.getElementById('osd-progress-filled');
+    this.timePreviewEl = document.getElementById('osd-time-preview');
     this.loadingCurtain = document.getElementById('player-loading-curtain');
     this.loadingTitle = document.getElementById('player-loading-title');
 
@@ -105,7 +106,7 @@ const PlayerController = {
       btnFf.addEventListener('click', () => this.seek(10));
     }
 
-    // Interactive timeline seeking on click or drag
+    // Interactive timeline seeking on click or drag & hover time preview
     if (this.progressTrack) {
       const handleSeek = (e) => {
         if (!this.videoEl || !this.videoEl.duration) return;
@@ -120,6 +121,22 @@ const PlayerController = {
       this.progressTrack.addEventListener('click', (e) => {
         e.stopPropagation();
         handleSeek(e);
+      });
+
+      this.progressTrack.addEventListener('mousemove', (e) => {
+        if (!this.videoEl || !this.videoEl.duration || !this.timePreviewEl) return;
+        const rect = this.progressTrack.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const hoverTime = ratio * this.videoEl.duration;
+        this.timePreviewEl.textContent = this.formatTime(hoverTime);
+        this.timePreviewEl.style.left = `${(ratio * 100).toFixed(1)}%`;
+        this.timePreviewEl.style.display = 'block';
+      });
+
+      this.progressTrack.addEventListener('mouseleave', () => {
+        if (this.timePreviewEl) {
+          this.timePreviewEl.style.display = 'none';
+        }
       });
     }
 

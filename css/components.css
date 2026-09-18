@@ -1166,9 +1166,9 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 40px 60px;
+  padding: 36px 48px;
   z-index: 30;
-  background: radial-gradient(circle at center, transparent 30%, rgba(0, 0, 0, 0.7) 100%);
+  background: radial-gradient(circle at center, transparent 40%, rgba(0, 0, 0, 0.6) 100%);
   opacity: 1;
   transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none !important;
@@ -1185,12 +1185,6 @@
 }
 
 .player-osd.iframe-mode .osd-top {
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.85) 0%, transparent 100%);
-  padding: 14px 24px;
-  border-radius: var(--radius-md);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid var(--border-glass);
   pointer-events: auto !important;
 }
 
@@ -1207,8 +1201,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.8) 0%, transparent 100%);
-  padding: 10px 0;
+  background: rgba(15, 15, 25, 0.75);
+  padding: 14px 24px;
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  pointer-events: auto !important;
 }
 
 .osd-media-title {
@@ -1284,8 +1284,14 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.85) 0%, transparent 100%);
-  padding: 20px 0 10px 0;
+  background: rgba(15, 15, 25, 0.75);
+  padding: 18px 26px;
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  pointer-events: auto !important;
 }
 
 .osd-progress-wrapper {
@@ -1319,6 +1325,38 @@
 .osd-progress-track.focus-active {
   height: 14px;
   background: rgba(255, 255, 255, 0.28);
+}
+
+.osd-time-preview {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  transform: translateX(-50%);
+  background: rgba(20, 20, 32, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.95rem;
+  font-weight: 700;
+  pointer-events: none;
+  display: none;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7), 0 0 15px rgba(99, 102, 241, 0.3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  z-index: 40;
+}
+
+.osd-time-preview::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 5px 5px 0 5px;
+  border-style: solid;
+  border-color: rgba(20, 20, 32, 0.92) transparent transparent transparent;
 }
 
 .osd-progress-filled {
