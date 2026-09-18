@@ -44,12 +44,10 @@ const PlayerController = {
     if (this.videoEl && this.videoEl.style.display !== 'none' && this.videoEl.currentTime > 0) {
       return Math.floor(this.videoEl.currentTime);
     }
-    if (this.hasReceivedIframeEvent && this.currentSessionTime !== null && this.currentSessionTime !== undefined) {
+    if (this.currentSessionTime !== null && this.currentSessionTime !== undefined && this.currentSessionTime > 0) {
       return this.currentSessionTime;
     }
-    const elapsedSec = this.playStartTime ? Math.max(0, Math.floor((Date.now() - this.playStartTime) / 1000)) : 0;
-    const computedSec = (this.initialResumeSec || 0) + elapsedSec;
-    return Math.max(this.currentSessionTime || 0, computedSec);
+    return 0;
   },
 
   flushSessionProgress() {
@@ -393,28 +391,9 @@ const PlayerController = {
       window.navigatorInstance.setFocus(this.playBtn);
     }
 
-    // Initialize session ticker for robust web & TV progress tracking
-    this.playStartTime = Date.now();
-    this.initialResumeSec = resumeSec;
+    // Initialize session state for real playback tracking
     this.currentSessionTime = resumeSec;
     this.estimatedDuration = isTv ? 2700 : 7200;
-    this.tickCount = 0;
-
-    if (this.sessionTicker) {
-      clearInterval(this.sessionTicker);
-      this.sessionTicker = null;
-    }
-
-    this.sessionTicker = setInterval(() => {
-      if (this.isActive && this.currentItem) {
-        const currentPos = this.calculateCurrentPlaybackTime();
-        this.currentSessionTime = currentPos;
-        this.tickCount += 1;
-        if (this.tickCount % 5 === 0) {
-          StorageService.saveWatchProgress(this.currentItem, currentPos, this.estimatedDuration);
-        }
-      }
-    }, 1000);
 
     // Save initial progress
     StorageService.saveWatchProgress({
@@ -501,28 +480,9 @@ const PlayerController = {
       window.navigatorInstance.setFocus(this.playBtn);
     }
 
-    // Initialize session ticker for anime playback
-    this.playStartTime = Date.now();
-    this.initialResumeSec = resumeSec;
+    // Initialize session state for anime playback
     this.currentSessionTime = resumeSec;
     this.estimatedDuration = 1440; // 24m standard anime
-    this.tickCount = 0;
-
-    if (this.sessionTicker) {
-      clearInterval(this.sessionTicker);
-      this.sessionTicker = null;
-    }
-
-    this.sessionTicker = setInterval(() => {
-      if (this.isActive && this.currentItem) {
-        const currentPos = this.calculateCurrentPlaybackTime();
-        this.currentSessionTime = currentPos;
-        this.tickCount += 1;
-        if (this.tickCount % 5 === 0) {
-          StorageService.saveWatchProgress(this.currentItem, currentPos, this.estimatedDuration);
-        }
-      }
-    }, 1000);
 
     // Save initial progress
     StorageService.saveWatchProgress({
@@ -1058,11 +1018,6 @@ const PlayerController = {
   close() {
     if (!this.isActive) return;
 
-    if (this.sessionTicker) {
-      clearInterval(this.sessionTicker);
-      this.sessionTicker = null;
-    }
-
     if (this.loadingTimeout) {
       clearTimeout(this.loadingTimeout);
       this.loadingTimeout = null;
@@ -1087,7 +1042,6 @@ const PlayerController = {
 
     this.container.classList.remove('active');
     this.isActive = false;
-    this.playStartTime = null;
     window.navigatorInstance.setPlayerActive(false);
 
     if (this.loadingCurtain) {
