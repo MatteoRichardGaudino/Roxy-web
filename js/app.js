@@ -137,8 +137,8 @@ class RoxyApp {
   // =========================================================================
   async loadHomeCatalog() {
     try {
-      // 1. Fetch data concurrently from TMDB
-      const [trending, popularMovies, allTimePopular, popularTV, topRated, actionMovies, sciFiMovies, animation] = await Promise.all([
+      // 1. Fetch data concurrently from TMDB and AnimeSaturn
+      const [trending, popularMovies, allTimePopular, popularTV, topRated, actionMovies, sciFiMovies, animation, saturnAnime] = await Promise.all([
         TMDBService.getTrending('day'),
         TMDBService.getPopularMovies(),
         TMDBService.getAllTimePopularMovies(),
@@ -146,7 +146,8 @@ class RoxyApp {
         TMDBService.getTopRatedMovies(),
         TMDBService.getByGenre(CONFIG.GENRES.ACTION, 'movie', Math.floor(Math.random() * 2) + 1),
         TMDBService.getByGenre(CONFIG.GENRES.SCI_FI, 'movie', Math.floor(Math.random() * 2) + 1),
-        TMDBService.getByGenre(CONFIG.GENRES.ANIMATION, 'movie')
+        TMDBService.getByGenre(CONFIG.GENRES.ANIMATION, 'movie'),
+        AnimeSaturnService.getLatestAnime().catch(() => [])
       ]);
 
       // 2. Filter every collection with CatalogService to display only available items on homepage
@@ -172,6 +173,12 @@ class RoxyApp {
 
       // 6. Render Horizontal Rows with available contents
       this.renderRow('I Più Popolari in Streaming Oggi', availTrending.slice(0, 18), 'home-rows-container');
+      
+      // Dedicated AnimeSaturn Row with DUB ITA prioritized
+      if (saturnAnime && saturnAnime.length > 0) {
+        this.renderRow('🪐 Anime', saturnAnime, 'home-rows-container');
+      }
+
       this.renderRow('Grandi Successi di Sempre', availAllTime, 'home-rows-container');
       this.renderRow('Serie TV del Momento', availPopularTV, 'home-rows-container');
       this.renderRow('Scelti per Te (Mix Consigliati)', mixedPicks, 'home-rows-container');
@@ -328,6 +335,51 @@ class RoxyApp {
   }
 
   // =========================================================================
+  // Media Card HTML Generator (TMDB & AnimeSaturn)
+  // =========================================================================
+  getMediaCardHtml(item) {
+    const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+    const isAvailable = isSaturn ? true : CatalogService.isItemAvailable(item);
+    const posterUrl = (item.poster_path && item.poster_path.startsWith('http'))
+      ? item.poster_path
+      : TMDBService.getPosterUrl(item.poster_path);
+
+    let topBadges = '';
+    let topLeftBadges = '';
+
+    if (isSaturn) {
+      topLeftBadges = `<span class="saturn-tag">🪐</span>`;
+      topBadges = item.isDub ? `<span class="badge-dub">DUB</span>` : `<span class="badge-sub">SUB</span>`;
+    } else {
+      topBadges = isAvailable ? `<span class="badge-rating">★ ${(item.vote_average || 7.0).toFixed(1)}</span>` : `<span class="badge-unavailable">Non disp.</span>`;
+    }
+
+    const title = isSaturn ? AnimeSaturnService.cleanAnimeTitle(item.title || item.name) : (item.title || item.name);
+    const year = (item.release_date || item.first_air_date || '').substring(0, 4);
+    const mediaLabel = isSaturn ? (item.anime_type || 'Anime') : (item.media_type === 'tv' || item.name ? 'Serie TV' : 'Film');
+
+    return `
+      <div class="media-card navigable ${isAvailable ? '' : 'unavailable'}" tabindex="0" data-id="${item.id}" data-type="${item.media_type || (isSaturn ? 'anime' : 'movie')}" data-source="${item.source || 'tmdb'}">
+        ${topLeftBadges ? `<div class="card-badge-top-left">${topLeftBadges}</div>` : ''}
+        <div class="card-badge-top">${topBadges}</div>
+        <img src="${posterUrl}" alt="${title}" loading="lazy" />
+        ${isAvailable ? `
+        <div class="card-play-indicator">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
+        </div>` : ''}
+        <div class="card-overlay">
+          <div class="card-title">${isSaturn ? '🪐 ' : ''}${title}</div>
+          <div class="card-meta">
+            ${year ? `<span>${year}</span><span>•</span>` : ''}
+            <span>${mediaLabel}</span>
+            ${isSaturn ? `<span>•</span><span>${item.isDub ? 'DUB ITA' : 'SUB ITA'}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // =========================================================================
   // Continue Watching Row (Real Progress & Exact Resume Point)
   // =========================================================================
   renderContinueWatchingRow() {
@@ -359,22 +411,29 @@ class RoxyApp {
           const currentMins = Math.floor((item.currentTime || 0) / 60);
           const durMins = Math.floor((item.duration || 0) / 60);
           const timeText = (durMins > 0) ? `${currentMins}/${durMins} min` : (currentMins > 0 ? `${currentMins} min` : '');
-          const isTv = (item.media_type === 'tv');
-          const subInfo = isTv ? `S${item.season || 1}:E${item.episode || 1}` : '';
+          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+          const isTv = (item.media_type === 'tv' || isSaturn);
+          const subInfo = isSaturn 
+            ? `Ep. ${item.episode || 1} • ${item.isDub ? 'DUB' : 'SUB'}` 
+            : (isTv ? `S${item.season || 1}:E${item.episode || 1}` : '');
+
+          const posterUrl = (item.backdrop_path || item.poster_path || '');
+          const imgUrl = (posterUrl.startsWith('http')) ? posterUrl : TMDBService.getBackdropUrl(posterUrl);
+          const cleanTitle = isSaturn ? AnimeSaturnService.cleanAnimeTitle(item.title) : item.title;
 
           return `
           <div class="continue-card navigable" tabindex="0" data-id="${item.id}" data-type="${item.media_type}">
-            <img src="${TMDBService.getBackdropUrl(item.backdrop_path || item.poster_path)}" alt="${item.title}" loading="lazy" />
+            <img src="${imgUrl}" alt="${cleanTitle}" loading="lazy" />
             <div class="card-play-indicator">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
             </div>
             <div class="continue-overlay">
               <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                 <span style="font-size: 0.75rem; color: #a5b4fc; font-weight: 600;">${subInfo}</span>
-                <span class="badge-indigo" style="font-size: 0.75rem;">${isTv ? 'SERIE' : 'FILM'}</span>
+                <span class="${isSaturn ? 'badge-saturn' : 'badge-indigo'}" style="font-size: 0.75rem;">${isSaturn ? '🪐 ANIME' : (isTv ? 'SERIE' : 'FILM')}</span>
               </div>
               <div>
-                <div class="card-title">${item.title}</div>
+                <div class="card-title">${isSaturn ? '🪐 ' : ''}${cleanTitle}</div>
                 <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">
                   <span>${progressPercent}%</span>
                   <span>${timeText}</span>
@@ -391,8 +450,8 @@ class RoxyApp {
 
     // Attach click events: Play button starts playback directly, clicking the card body opens details modal
     container.querySelectorAll('.continue-card').forEach(card => {
-      const id = parseInt(card.getAttribute('data-id'));
-      const item = list.find(i => i.id === id);
+      const rawId = card.getAttribute('data-id');
+      const item = list.find(i => String(i.id) === String(rawId));
       if (item) {
         const playBtn = card.querySelector('.card-play-indicator');
         if (playBtn) {
@@ -428,28 +487,7 @@ class RoxyApp {
         <h2 class="row-title">${title}</h2>
       </div>
       <div class="row-carousel" id="${rowId}">
-        ${items.filter(i => i.poster_path).map(item => {
-          const isAvailable = CatalogService.isItemAvailable(item);
-          return `
-          <div class="media-card navigable ${isAvailable ? '' : 'unavailable'}" tabindex="0" data-id="${item.id}" data-type="${item.media_type || 'movie'}">
-            <div class="card-badge-top">
-              ${isAvailable ? `<span class="badge-rating">★ ${(item.vote_average || 7.0).toFixed(1)}</span>` : `<span class="badge-unavailable">Non disp.</span>`}
-            </div>
-            <img src="${TMDBService.getPosterUrl(item.poster_path)}" alt="${item.title || item.name}" loading="lazy" />
-            ${isAvailable ? `
-            <div class="card-play-indicator">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
-            </div>` : ''}
-            <div class="card-overlay">
-              <div class="card-title">${item.title || item.name}</div>
-              <div class="card-meta">
-                <span>${(item.release_date || item.first_air_date || '').substring(0, 4)}</span>
-                <span>•</span>
-                <span>${item.media_type === 'tv' || item.name ? 'Serie TV' : 'Film'}</span>
-              </div>
-            </div>
-          </div>
-        `}).join('')}
+        ${items.filter(i => i.poster_path).map(item => this.getMediaCardHtml(item)).join('')}
       </div>
     `;
 
@@ -457,14 +495,15 @@ class RoxyApp {
 
     // Attach click listeners: play button starts playback, card body opens details modal
     row.querySelectorAll('.media-card').forEach(card => {
-      const id = parseInt(card.getAttribute('data-id'));
-      const item = items.find(i => i.id === id);
+      const rawId = card.getAttribute('data-id');
+      const item = items.find(i => String(i.id) === String(rawId));
       if (item) {
+        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
         const playBtn = card.querySelector('.card-play-indicator');
         if (playBtn) {
           playBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (!CatalogService.isItemAvailable(item)) {
+            if (!isSaturn && !CatalogService.isItemAvailable(item)) {
               this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
               return;
             }
@@ -503,13 +542,21 @@ class RoxyApp {
 
     this.lastFocusedElement = document.activeElement;
 
-    // Fetch full details
-    const mediaType = item.media_type || (item.name ? 'tv' : 'movie');
-    const fullDetails = await TMDBService.getDetails(item.id, mediaType);
-    const data = fullDetails || item;
+    const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+    
+    let data;
+    if (isSaturn) {
+      const slug = item.slug || String(item.id).replace('saturn_', '');
+      const fetched = await AnimeSaturnService.getAnimeDetails(slug);
+      data = fetched || item;
+    } else {
+      const mediaType = item.media_type || (item.name ? 'tv' : 'movie');
+      const fullDetails = await TMDBService.getDetails(item.id, mediaType);
+      data = fullDetails || item;
+    }
 
-    // Verify availability against VixSrc catalog list
-    const isAvailable = CatalogService.isItemAvailable(data);
+    // Verify availability against VixSrc catalog list (Saturn is always available)
+    const isAvailable = isSaturn ? true : CatalogService.isItemAvailable(data);
 
     // Populate Modal DOM
     const backdropImg = document.getElementById('modal-backdrop-img');
@@ -521,26 +568,38 @@ class RoxyApp {
     const btnWatchlist = document.getElementById('modal-btn-watchlist');
 
     if (backdropImg) {
-      backdropImg.src = TMDBService.getBackdropUrl(data.backdrop_path || data.poster_path);
+      const bg = data.backdrop_path || data.poster_path;
+      backdropImg.src = (bg && bg.startsWith('http')) ? bg : TMDBService.getBackdropUrl(bg);
     }
 
     if (titleEl) {
-      titleEl.textContent = data.title || data.name || '';
+      const displayTitle = isSaturn ? AnimeSaturnService.cleanAnimeTitle(data.title || data.name) : (data.title || data.name || '');
+      titleEl.textContent = isSaturn ? `🪐 ${displayTitle}` : displayTitle;
     }
 
     if (badgesEl) {
-      const year = (data.release_date || data.first_air_date || '').substring(0, 4);
-      const rating = data.vote_average ? data.vote_average.toFixed(1) : '7.5';
-      const duration = data.runtime ? `${data.runtime} min` : (data.number_of_seasons ? `${data.number_of_seasons} Stagioni` : '');
+      if (isSaturn) {
+        badgesEl.innerHTML = `
+          <span class="badge-saturn">🪐 AnimeSaturn</span>
+          <span class="${data.isDub ? 'badge-dub' : 'badge-sub'}">${data.isDub ? 'DUB ITA' : 'SUB ITA'}</span>
+          <span class="badge-quality">FULL HD 1080P</span>
+          ${data.episodes ? `<span class="badge-quality">${data.episodes.length} Episodi</span>` : ''}
+        `;
+      } else {
+        const year = (data.release_date || data.first_air_date || '').substring(0, 4);
+        const rating = data.vote_average ? data.vote_average.toFixed(1) : '7.5';
+        const duration = data.runtime ? `${data.runtime} min` : (data.number_of_seasons ? `${data.number_of_seasons} Stagioni` : '');
+        const mediaType = data.media_type || (data.name ? 'tv' : 'movie');
 
-      badgesEl.innerHTML = `
-        <span class="badge-indigo">${mediaType === 'tv' ? 'SERIE TV' : 'FILM'}</span>
-        ${!isAvailable ? `<span class="badge-unavailable">NON DISPONIBILE</span>` : ''}
-        <span class="badge-rating">★ ${rating}</span>
-        <span class="badge-quality">4K HDR</span>
-        ${duration ? `<span class="badge-quality">${duration}</span>` : ''}
-        ${year ? `<span style="color: var(--text-med); font-weight: 600;">${year}</span>` : ''}
-      `;
+        badgesEl.innerHTML = `
+          <span class="badge-indigo">${mediaType === 'tv' ? 'SERIE TV' : 'FILM'}</span>
+          ${!isAvailable ? `<span class="badge-unavailable">NON DISPONIBILE</span>` : ''}
+          <span class="badge-rating">★ ${rating}</span>
+          <span class="badge-quality">4K HDR</span>
+          ${duration ? `<span class="badge-quality">${duration}</span>` : ''}
+          ${year ? `<span style="color: var(--text-med); font-weight: 600;">${year}</span>` : ''}
+        `;
+      }
     }
 
     if (overviewEl) {
@@ -549,8 +608,10 @@ class RoxyApp {
 
     if (gridEl) {
       const genresStr = (data.genres || []).map(g => g.name).join(', ') || 'Generale';
-      const statusStr = data.status || 'Rilasciato';
-      const langStr = (data.original_language || 'it').toUpperCase();
+      const statusStr = data.status || 'Disponibile';
+      const langStr = isSaturn 
+        ? (data.isDub ? 'Italiano (DUB)' : 'Giapponese (SUB ITA)') 
+        : (data.original_language || 'it').toUpperCase();
 
       gridEl.innerHTML = `
         <div class="meta-item">
@@ -562,16 +623,55 @@ class RoxyApp {
           <div class="meta-item-val">${statusStr}</div>
         </div>
         <div class="meta-item">
-          <div class="meta-item-label">Lingua Originale</div>
+          <div class="meta-item-label">Audio / Lingua</div>
           <div class="meta-item-val">${langStr}</div>
         </div>
       `;
     }
 
-    // TV Show Seasons & Episodes Section
+    // Episodes Section (Handles both TV Series and AnimeSaturn Episodes)
     const episodesContainer = document.getElementById('modal-episodes-container');
     if (episodesContainer) {
-      if (mediaType === 'tv' && data.seasons && data.seasons.length > 0) {
+      if (isSaturn && data.episodes && data.episodes.length > 0) {
+        episodesContainer.style.display = 'flex';
+        episodesContainer.innerHTML = `
+          <h3 class="modal-section-title">Episodi Anime (${data.episodes.length})</h3>
+          <div class="episodes-grid" id="modal-episodes-grid">
+            ${data.episodes.map(ep => `
+              <div class="episode-card navigable" tabindex="0" data-episode="${ep.episode_number}">
+                <div class="episode-thumb-wrap">
+                  <img src="${(ep.still_path && ep.still_path.startsWith('http')) ? ep.still_path : (data.backdrop_path || data.poster_path)}" alt="${ep.name}" loading="lazy" />
+                </div>
+                <div class="episode-info">
+                  <div class="episode-title-row">
+                    <div class="episode-number-title">${ep.episode_number}. ${ep.name || `Episodio ${ep.episode_number}`}</div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span class="${data.isDub ? 'badge-dub' : 'badge-sub'}">${data.isDub ? 'DUB' : 'SUB'}</span>
+                    </div>
+                  </div>
+                  <div class="episode-overview">${ep.overview || `Episodio ${ep.episode_number}`}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+
+        // Episode click handlers
+        episodesContainer.querySelectorAll('.episode-card').forEach(epCard => {
+          epCard.addEventListener('click', () => {
+            const epNum = parseInt(epCard.getAttribute('data-episode'));
+            const epData = data.episodes.find(e => e.episode_number === epNum);
+            this.closeModal();
+            PlayerController.play({
+              ...data,
+              source: 'animesaturn',
+              slug: data.slug || item.slug,
+              episode: epNum,
+              episode_name: epData ? epData.name : `Episodio ${epNum}`
+            });
+          });
+        });
+      } else if (!isSaturn && (data.media_type === 'tv' || data.name) && data.seasons && data.seasons.length > 0) {
         episodesContainer.style.display = 'flex';
         const validSeasons = data.seasons.filter(s => s.season_number > 0);
         const seasonsList = validSeasons.length > 0 ? validSeasons : data.seasons;
@@ -667,10 +767,10 @@ class RoxyApp {
     if (btnPlay) {
       if (isAvailable) {
         btnPlay.className = 'btn-primary-play navigable';
-        btnPlay.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Riproduci`;
+        btnPlay.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> ${isSaturn ? 'Riproduci Ep. 1' : 'Riproduci'}`;
         btnPlay.onclick = () => {
           this.closeModal();
-          PlayerController.play(data);
+          PlayerController.play(isSaturn ? { ...data, episode: 1 } : data);
         };
       } else {
         btnPlay.className = 'btn-unavailable navigable';
@@ -733,7 +833,7 @@ class RoxyApp {
   }
 
   // =========================================================================
-  // Search View
+  // Search View (Unified TMDB + AnimeSaturn Search with DUB Priority)
   // =========================================================================
   bindSearchEvents() {
     const wrapper = document.querySelector('.search-input-wrapper');
@@ -772,51 +872,45 @@ class RoxyApp {
     if (!grid) return;
 
     if (!query || query.trim().length === 0) {
-      grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.2rem; grid-column: 1/-1;">Inizia a digitare per cercare tra migliaia di film e serie TV...</div>`;
+      grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.2rem; grid-column: 1/-1;">Inizia a digitare per cercare tra film, serie TV e anime...</div>`;
       return;
     }
 
     grid.innerHTML = `<div style="color: var(--primary-indigo-light); font-size: 1.2rem; grid-column: 1/-1;">Ricerca in corso...</div>`;
 
-    const results = await TMDBService.search(query);
+    const [tmdbResults, saturnResults] = await Promise.all([
+      TMDBService.search(query).catch(() => []),
+      AnimeSaturnService.search(query).catch(() => [])
+    ]);
 
-    if (results.length === 0) {
+    // Split Saturn results by DUB vs SUB (DUB ITA prioritized first)
+    const saturnDub = saturnResults.filter(i => i.isDub);
+    const saturnSub = saturnResults.filter(i => !i.isDub);
+
+    // Merge results: DUB Anime first, then TMDB results, then SUB anime
+    const mergedResults = [
+      ...saturnDub,
+      ...tmdbResults,
+      ...saturnSub
+    ];
+
+    if (mergedResults.length === 0) {
       grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.2rem; grid-column: 1/-1;">Nessun risultato trovato per "${query}".</div>`;
       return;
     }
 
-    grid.innerHTML = results.map(item => {
-      const isAvailable = CatalogService.isItemAvailable(item);
-      return `
-      <div class="media-card navigable ${isAvailable ? '' : 'unavailable'}" tabindex="0" data-id="${item.id}" data-type="${item.media_type}">
-        <div class="card-badge-top">
-          ${isAvailable ? `<span class="badge-rating">★ ${(item.vote_average || 7.0).toFixed(1)}</span>` : `<span class="badge-unavailable">Non disp.</span>`}
-        </div>
-        <img src="${TMDBService.getPosterUrl(item.poster_path)}" alt="${item.title || item.name}" loading="lazy" />
-        ${isAvailable ? `
-        <div class="card-play-indicator">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
-        </div>` : ''}
-        <div class="card-overlay">
-          <div class="card-title">${item.title || item.name}</div>
-          <div class="card-meta">
-            <span>${(item.release_date || item.first_air_date || '').substring(0, 4)}</span>
-            <span>•</span>
-            <span>${item.media_type === 'tv' ? 'Serie TV' : 'Film'}</span>
-          </div>
-        </div>
-      </div>
-    `}).join('');
+    grid.innerHTML = mergedResults.map(item => this.getMediaCardHtml(item)).join('');
 
     grid.querySelectorAll('.media-card').forEach(card => {
-      const id = parseInt(card.getAttribute('data-id'));
-      const item = results.find(i => i.id === id);
+      const rawId = card.getAttribute('data-id');
+      const item = mergedResults.find(i => String(i.id) === String(rawId));
       if (item) {
+        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
         const playBtn = card.querySelector('.card-play-indicator');
         if (playBtn) {
           playBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (!CatalogService.isItemAvailable(item)) {
+            if (!isSaturn && !CatalogService.isItemAvailable(item)) {
               this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
               return;
             }
@@ -846,44 +940,24 @@ class RoxyApp {
         <div style="grid-column: 1/-1; text-align: center; padding: 60px 0;">
           <div style="font-size: 3rem; margin-bottom: 14px;">🎬</div>
           <div style="font-size: 1.3rem; font-weight: 700; color: #ffffff;">La tua lista è vuota</div>
-          <div style="font-size: 1rem; color: var(--text-muted); margin-top: 8px;">Aggiungi film e serie TV per ritrovarli facilmente qui.</div>
+          <div style="font-size: 1rem; color: var(--text-muted); margin-top: 8px;">Aggiungi film, serie TV e anime per ritrovarli facilmente qui.</div>
         </div>
       `;
       return;
     }
 
-    grid.innerHTML = list.map(item => {
-      const isAvailable = CatalogService.isItemAvailable(item);
-      return `
-      <div class="media-card navigable ${isAvailable ? '' : 'unavailable'}" tabindex="0" data-id="${item.id}" data-type="${item.media_type}">
-        <div class="card-badge-top">
-          ${isAvailable ? `<span class="badge-rating">★ ${(item.vote_average || 7.0).toFixed(1)}</span>` : `<span class="badge-unavailable">Non disp.</span>`}
-        </div>
-        <img src="${TMDBService.getPosterUrl(item.poster_path)}" alt="${item.title}" loading="lazy" />
-        ${isAvailable ? `
-        <div class="card-play-indicator">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
-        </div>` : ''}
-        <div class="card-overlay">
-          <div class="card-title">${item.title}</div>
-          <div class="card-meta">
-            <span>${(item.release_date || '').substring(0, 4)}</span>
-            <span>•</span>
-            <span>${item.media_type === 'tv' ? 'Serie TV' : 'Film'}</span>
-          </div>
-        </div>
-      </div>
-    `}).join('');
+    grid.innerHTML = list.map(item => this.getMediaCardHtml(item)).join('');
 
     grid.querySelectorAll('.media-card').forEach(card => {
-      const id = parseInt(card.getAttribute('data-id'));
-      const item = list.find(i => i.id === id);
+      const rawId = card.getAttribute('data-id');
+      const item = list.find(i => String(i.id) === String(rawId));
       if (item) {
+        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
         const playBtn = card.querySelector('.card-play-indicator');
         if (playBtn) {
           playBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (!CatalogService.isItemAvailable(item)) {
+            if (!isSaturn && !CatalogService.isItemAvailable(item)) {
               this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
               return;
             }

@@ -23,7 +23,7 @@ const StorageService = {
   getItemProgress(id) {
     try {
       const list = this.getContinueWatching();
-      return list.find(i => i.id === Number(id)) || null;
+      return list.find(i => String(i.id) === String(id)) || null;
     } catch (e) {
       return null;
     }
@@ -32,13 +32,16 @@ const StorageService = {
   saveWatchProgress(item, currentTime = 0, duration = 0) {
     try {
       if (!item || !item.id) return;
-      const list = this.getContinueWatching().filter(i => i.id !== item.id);
-      const isTv = (item.media_type === 'tv' || !!item.name || (item.number_of_seasons !== undefined));
+      const list = this.getContinueWatching().filter(i => String(i.id) !== String(item.id));
+      const isTv = (item.media_type === 'tv' || item.media_type === 'anime' || !!item.name || (item.number_of_seasons !== undefined));
       const progressPercent = duration > 0 ? Math.min(100, Math.round((currentTime / duration) * 100)) : 0;
       
       const record = {
         id: item.id,
-        media_type: isTv ? 'tv' : 'movie',
+        source: item.source || 'tmdb',
+        slug: item.slug || '',
+        isDub: item.isDub || false,
+        media_type: item.media_type || (isTv ? 'tv' : 'movie'),
         title: item.title || item.name,
         backdrop_path: item.backdrop_path,
         poster_path: item.poster_path,
@@ -65,7 +68,7 @@ const StorageService = {
 
   removeContinueWatching(id) {
     try {
-      const list = this.getContinueWatching().filter(i => i.id !== Number(id));
+      const list = this.getContinueWatching().filter(i => String(i.id) !== String(id));
       localStorage.setItem(this.KEYS.CONTINUE_WATCHING, JSON.stringify(list));
       return true;
     } catch (e) {
@@ -86,13 +89,13 @@ const StorageService = {
 
   isInWatchlist(id) {
     const list = this.getWatchlist();
-    return list.some(item => item.id === id);
+    return list.some(item => String(item.id) === String(id));
   },
 
   toggleWatchlist(item) {
     try {
       let list = this.getWatchlist();
-      const index = list.findIndex(i => i.id === item.id);
+      const index = list.findIndex(i => String(i.id) === String(item.id));
       let added = false;
       if (index >= 0) {
         list.splice(index, 1);
@@ -100,6 +103,9 @@ const StorageService = {
       } else {
         list.unshift({
           id: item.id,
+          source: item.source || 'tmdb',
+          slug: item.slug || '',
+          isDub: item.isDub || false,
           media_type: item.media_type || (item.name ? 'tv' : 'movie'),
           title: item.title || item.name,
           poster_path: item.poster_path,

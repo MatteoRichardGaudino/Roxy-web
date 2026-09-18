@@ -115,6 +115,11 @@ const PlayerController = {
     this.isActive = true;
     window.navigatorInstance.setPlayerActive(true);
 
+    if (item.source === 'animesaturn') {
+      this.playSaturn(item, explicitResumeTime);
+      return;
+    }
+
     const isTv = (item.media_type === 'tv' || !!item.name || (item.number_of_seasons !== undefined));
     const season = item.season || 1;
     const episode = item.episode || 1;
@@ -213,6 +218,97 @@ const PlayerController = {
       ...item,
       season: isTv ? season : undefined,
       episode: isTv ? episode : undefined
+    }, resumeTime || 0, 100);
+  },
+
+  async playSaturn(item, explicitResumeTime = null) {
+    const slug = item.slug || (item.id ? String(item.id).replace('saturn_', '') : '');
+    const epNum = item.episode || 1;
+
+    let resumeTime = explicitResumeTime;
+    if (resumeTime === null) {
+      const saved = StorageService.getItemProgress(item.id);
+      if (saved && saved.currentTime > 5 && saved.progress < 95 && saved.episode === epNum) {
+        resumeTime = saved.currentTime;
+        console.log(`[Roxy Player] Resuming Anime ${item.title || item.name} Ep ${epNum} from: ${resumeTime}s`);
+      }
+    }
+
+    const cleanTitle = (item.title || item.name || 'Anime').replace(/\s*\((ITA|SUB|SUB ITA)\)\s*/gi, '').trim();
+    const subLabel = item.isDub ? 'DUB ITA' : 'SUB ITA';
+    const displayTitle = `🪐 ${cleanTitle} - Ep. ${epNum} (${subLabel})`;
+
+    if (this.titleEl) this.titleEl.textContent = displayTitle;
+    if (this.loadingCurtain) {
+      this.loadingCurtain.classList.remove('fade-out');
+      this.loadingCurtain.style.display = 'flex';
+    }
+    if (this.loadingTitle) this.loadingTitle.textContent = displayTitle;
+    this.container.classList.add('active');
+
+    const osdBottom = this.osd ? this.osd.querySelector('.osd-bottom') : null;
+
+    try {
+      console.log(`[Roxy Player] Resolving AnimeSaturn stream for: ${slug} ep ${epNum}`);
+      const res = await AnimeSaturnService.resolveStream(slug, epNum);
+
+      if (res && res.type === 'direct' && res.streamUrl) {
+        console.log(`[Roxy Player] Playing direct Saturn stream: ${res.streamUrl}`);
+        if (this.osd) this.osd.classList.remove('iframe-mode');
+        this.iframeEl.style.display = 'none';
+        this.videoEl.style.display = 'block';
+        this.videoEl.src = res.streamUrl;
+        
+        if (resumeTime && resumeTime > 0) {
+          this.videoEl.currentTime = resumeTime;
+        }
+        
+        this.videoEl.play().catch(e => console.warn('Saturn direct autoplay prevented:', e));
+        if (osdBottom) osdBottom.style.display = 'flex';
+      } else if (res && res.type === 'iframe' && res.streamUrl) {
+        console.log(`[Roxy Player] Playing Saturn iframe embed: ${res.streamUrl}`);
+        this.videoEl.style.display = 'none';
+        this.iframeEl.style.display = 'block';
+        this.iframeEl.removeAttribute('sandbox');
+        this.iframeEl.setAttribute('allow', 'fullscreen; autoplay; encrypted-media; picture-in-picture');
+        this.iframeEl.setAttribute('referrerpolicy', 'origin');
+        this.iframeEl.src = res.streamUrl;
+        
+        if (this.osd) this.osd.classList.add('iframe-mode');
+        if (osdBottom) osdBottom.style.display = 'none';
+        this.hideLoadingCurtain();
+      } else {
+        throw new Error('No stream available from AnimeSaturn');
+      }
+    } catch (err) {
+      console.error('[Roxy Player] AnimeSaturn playback failed:', err);
+      this.hideLoadingCurtain();
+      if (window.App) {
+        window.App.showToast('Impossibile caricare il flusso video per questo episodio.');
+      }
+      setTimeout(() => this.close(), 2500);
+      return;
+    }
+
+    this.isPlaying = true;
+    this.updatePlayBtnIcon();
+    this.showOSD();
+
+    const btnBack = document.getElementById('osd-btn-back');
+    if (btnBack) {
+      window.navigatorInstance.setFocus(btnBack);
+    } else if (this.playBtn) {
+      window.navigatorInstance.setFocus(this.playBtn);
+    }
+
+    // Save initial progress
+    StorageService.saveWatchProgress({
+      ...item,
+      source: 'animesaturn',
+      slug: slug,
+      media_type: 'anime',
+      season: 1,
+      episode: epNum
     }, resumeTime || 0, 100);
   },
 
