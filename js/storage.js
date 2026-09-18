@@ -23,11 +23,20 @@ const StorageService = {
       const parsed = JSON.parse(data);
       if (!Array.isArray(parsed)) return [];
       
-      // Strict deduplication by media id
+      // Strict deduplication by media id and filter out finished movies / finished last episodes
       const seen = new Set();
       const cleanList = [];
       for (const item of parsed) {
         if (!item || !item.id) continue;
+        const isTv = (item.media_type === 'tv' || item.source === 'animesaturn' || String(item.id).startsWith('saturn_') || !!item.name || item.number_of_seasons !== undefined);
+        const rem = (item.duration && item.currentTime !== undefined) ? (item.duration - item.currentTime) : 999;
+        const isNearEnd = (item.progress >= 95) || (item.duration > 300 && rem <= 180);
+        
+        // Exclude completed movies
+        if (!isTv && isNearEnd) continue;
+        // Exclude completed last episode of series
+        if (isTv && isNearEnd && item.isLastEpisode) continue;
+
         const key = String(item.id);
         if (!seen.has(key)) {
           seen.add(key);
@@ -72,7 +81,7 @@ const StorageService = {
     }
   },
 
-  saveWatchProgress(item, currentTime = 0, duration = 0) {
+  saveWatchProgress(item, currentTime = 0, duration = 0, options = {}) {
     try {
       if (!item || !item.id) return;
       const mediaId = String(item.id);
@@ -82,6 +91,8 @@ const StorageService = {
       const finalDuration = (duration && duration > 0) ? Math.floor(duration) : (isTv ? 2700 : 7200);
       const finalCurrentTime = Math.max(0, Math.floor(currentTime || 0));
       const progressPercent = Math.min(100, Math.round((finalCurrentTime / finalDuration) * 100));
+      const remainingSeconds = Math.max(0, finalDuration - finalCurrentTime);
+      const isNearEnd = (progressPercent >= 95) || (finalDuration > 300 && remainingSeconds <= 180);
 
       const season = isTv ? (Number(item.season) || 1) : undefined;
       const episode = isTv ? (Number(item.episode) || 1) : undefined;
@@ -101,6 +112,7 @@ const StorageService = {
         currentTime: finalCurrentTime,
         duration: finalDuration,
         progress: progressPercent,
+        isLastEpisode: !!(options.isLastEpisode || item.isLastEpisode),
         updatedAt: Date.now()
       };
 
@@ -118,16 +130,48 @@ const StorageService = {
       // Update Continue Watching Carousel list (filter out duplicates)
       const list = this.getContinueWatching().filter(i => String(i.id) !== mediaId);
 
-      // Save to carousel if progress is not finished (>95%)
-      if (progressPercent < 95) {
-        list.unshift(record);
+      if (!isTv) {
+        // Movies: DO NOT show if finished or near end (<3 min left)
+        if (!isNearEnd) {
+          list.unshift(record);
+        } else if (window.SupabaseService) {
+          SupabaseService.hideWatchProgress(mediaId).catch(() => {});
+        }
+      } else {
+        // TV Series / Anime:
+        if (isNearEnd && (options.isLastEpisode || item.isLastEpisode)) {
+          // Last episode of entire series is finished: remove from Continue Watching
+          if (window.SupabaseService) {
+            SupabaseService.hideWatchProgress(mediaId).catch(() => {});
+          }
+        } else if (options.nextEpisode) {
+          // Advance Continue Watching to next episode ready to play!
+          const nextEp = options.nextEpisode;
+          const nextRecord = {
+            ...record,
+            season: isTv ? (Number(nextEp.season) || 1) : undefined,
+            episode: isTv ? (Number(nextEp.episode) || 1) : undefined,
+            episode_name: nextEp.episode_name || '',
+            currentTime: 0,
+            progress: 0,
+            isLastEpisode: !!nextEp.isLastEpisode,
+            updatedAt: Date.now()
+          };
+          list.unshift(nextRecord);
+          if (window.SupabaseService) {
+            SupabaseService.syncWatchProgress(nextEp, 0, finalDuration).catch(() => {});
+          }
+        } else {
+          // Normal TV progress update (even near end, keeps series in list until next episode advances)
+          list.unshift(record);
+        }
       }
       
       // Keep up to 30 items in local carousel
       localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(list.slice(0, 30)));
 
       // Sync to Supabase Cloud in background
-      if (window.SupabaseService) {
+      if (window.SupabaseService && (!options.nextEpisode)) {
         SupabaseService.syncWatchProgress(item, finalCurrentTime, finalDuration).catch(() => {});
       }
     } catch (e) {

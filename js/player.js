@@ -7,6 +7,9 @@ const PlayerController = {
   currentItem: null,
   osdTimeout: null,
   isPlaying: true,
+  prevEpisodeInfo: null,
+  nextEpisodeInfo: null,
+  isNextPromptDismissed: false,
 
   init() {
     this.container = document.getElementById('player-view');
@@ -17,6 +20,12 @@ const PlayerController = {
     this.playBtn = document.getElementById('osd-btn-play');
     this.iconPause = document.getElementById('osd-icon-pause');
     this.iconPlay = document.getElementById('osd-icon-play');
+    this.btnPrevEp = document.getElementById('osd-btn-prev-ep');
+    this.btnNextEp = document.getElementById('osd-btn-next-ep');
+    this.nextEpPrompt = document.getElementById('player-next-ep-prompt');
+    this.promptBtnNext = document.getElementById('prompt-btn-next-ep');
+    this.promptBtnClose = document.getElementById('prompt-btn-close');
+    this.promptNextLabel = document.getElementById('prompt-next-ep-label');
     this.progressTrack = document.querySelector('.osd-progress-track');
     this.timeCurrentEl = document.getElementById('osd-time-current');
     this.timeDurationEl = document.getElementById('osd-time-duration');
@@ -59,7 +68,16 @@ const PlayerController = {
     if (this.isActive && this.currentItem) {
       const finalTime = this.calculateCurrentPlaybackTime();
       if (finalTime > 0) {
-        StorageService.saveWatchProgress(this.currentItem, finalTime, this.estimatedDuration || 7200);
+        const isNearEnd = (this.estimatedDuration > 300 && (this.estimatedDuration - finalTime) <= 180);
+        StorageService.saveWatchProgress(
+          this.currentItem,
+          finalTime,
+          this.estimatedDuration || 7200,
+          {
+            isLastEpisode: !this.nextEpisodeInfo,
+            nextEpisode: (isNearEnd && this.nextEpisodeInfo) ? this.nextEpisodeInfo : null
+          }
+        );
       }
     }
   },
@@ -159,6 +177,7 @@ const PlayerController = {
       }
       this.hideLoadingCurtain();
       this.updateProgressDisplay(this.currentSessionTime, this.estimatedDuration);
+      this.checkNextEpisodePrompt(this.currentSessionTime, this.estimatedDuration);
     }
 
     if (eventName === 'play') {
@@ -179,9 +198,6 @@ const PlayerController = {
     } else if (eventName === 'ended') {
       this.isPlaying = false;
       this.onEnded();
-      if (this.estimatedDuration > 0) {
-        StorageService.saveWatchProgress(this.currentItem, this.estimatedDuration, this.estimatedDuration);
-      }
     } else if (eventName === 'timeupdate' || eventName === 'time' || eventName === 'roxy_playback_progress' || (currTime !== null && !['play', 'pause', 'seeked', 'seek', 'ended'].includes(eventName))) {
       const now = Date.now();
       if (!this.lastProgressSave || (now - this.lastProgressSave > 3000)) {
@@ -249,6 +265,22 @@ const PlayerController = {
       btnFullscreen.addEventListener('click', () => this.toggleFullscreen());
     }
 
+    if (this.btnPrevEp) {
+      this.btnPrevEp.addEventListener('click', () => this.playPrevEpisode());
+    }
+
+    if (this.btnNextEp) {
+      this.btnNextEp.addEventListener('click', () => this.playNextEpisode());
+    }
+
+    if (this.promptBtnNext) {
+      this.promptBtnNext.addEventListener('click', () => this.playNextEpisode());
+    }
+
+    if (this.promptBtnClose) {
+      this.promptBtnClose.addEventListener('click', () => this.dismissNextEpisodePrompt());
+    }
+
     // Interactive timeline seeking on click or drag & hover time preview
     if (this.progressTrack) {
       const handleSeek = (e) => {
@@ -301,6 +333,11 @@ const PlayerController = {
     this.isActive = true;
     this.hasReceivedIframeEvent = false;
     this.lastProgressSave = 0;
+    this.prevEpisodeInfo = null;
+    this.nextEpisodeInfo = null;
+    this.isNextPromptDismissed = false;
+    this.hideNextEpisodePrompt();
+    this.updateTopBarEpisodeButtons();
     window.navigatorInstance.setPlayerActive(true);
 
     try {
@@ -335,6 +372,7 @@ const PlayerController = {
       item.season = season;
       item.episode = episode;
       item.media_type = 'tv';
+      this.resolveAdjacentEpisodes(item);
     }
 
     // Check for saved resume position if not explicitly passed
@@ -461,6 +499,14 @@ const PlayerController = {
   },
 
   async playSaturn(item, explicitResumeTime = null) {
+    this.currentItem = item;
+    this.prevEpisodeInfo = null;
+    this.nextEpisodeInfo = null;
+    this.isNextPromptDismissed = false;
+    this.hideNextEpisodePrompt();
+    this.updateTopBarEpisodeButtons();
+    this.resolveAdjacentEpisodes(item);
+
     const slug = item.slug || (item.id ? String(item.id).replace('saturn_', '') : '');
     const epNum = item.episode || 1;
 
@@ -1080,13 +1126,29 @@ const PlayerController = {
       this.loadingTimeout = null;
     }
 
+    this.hideNextEpisodePrompt();
+    this.isNextPromptDismissed = false;
+
     // Flush last progress before unmounting
     if (this.currentItem) {
       const finalTime = this.calculateCurrentPlaybackTime();
       if (finalTime > 0) {
-        StorageService.saveWatchProgress(this.currentItem, finalTime, this.estimatedDuration || 7200);
+        const isNearEnd = (this.estimatedDuration > 300 && (this.estimatedDuration - finalTime) <= 180);
+        StorageService.saveWatchProgress(
+          this.currentItem,
+          finalTime,
+          this.estimatedDuration || 7200,
+          {
+            isLastEpisode: !this.nextEpisodeInfo,
+            nextEpisode: (isNearEnd && this.nextEpisodeInfo) ? this.nextEpisodeInfo : null
+          }
+        );
       }
     }
+
+    this.prevEpisodeInfo = null;
+    this.nextEpisodeInfo = null;
+    this.updateTopBarEpisodeButtons();
 
     if (this.videoEl) {
       this.videoEl.pause();
@@ -1186,15 +1248,259 @@ const PlayerController = {
       this.timeDurationEl.textContent = `-${this.formatTime(remaining)}`;
     }
 
-    if (this.currentItem) {
-      StorageService.saveWatchProgress(this.currentItem, current, duration);
+    this.checkNextEpisodePrompt(this.currentSessionTime, this.estimatedDuration);
+
+    const now = Date.now();
+    if (!this.lastProgressSave || (now - this.lastProgressSave > 3000)) {
+      this.lastProgressSave = now;
+      if (this.currentItem) {
+        StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
+      }
     }
   },
 
   onEnded() {
     this.isPlaying = false;
     this.updatePlayBtnIcon();
+    this.hideNextEpisodePrompt();
+
+    if (this.nextEpisodeInfo) {
+      console.log('[Roxy Player] Stream ended, auto-advancing to next episode:', this.nextEpisodeInfo);
+      this.playNextEpisode();
+      return;
+    }
+
+    // No next episode available: mark as last episode finished
+    if (this.currentItem) {
+      StorageService.saveWatchProgress(
+        this.currentItem,
+        this.estimatedDuration || 7200,
+        this.estimatedDuration || 7200,
+        { isLastEpisode: true }
+      );
+    }
     this.showOSD();
+  },
+
+  // =========================================================================
+  // Episode Navigation & Next Episode Prompt
+  // =========================================================================
+  async resolveAdjacentEpisodes(item) {
+    this.prevEpisodeInfo = null;
+    this.nextEpisodeInfo = null;
+    this.isNextPromptDismissed = false;
+    this.hideNextEpisodePrompt();
+    this.updateTopBarEpisodeButtons();
+
+    if (!item) return;
+
+    const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+    const isTv = (item.media_type === 'tv' || isSaturn || !!item.name || (item.number_of_seasons !== undefined));
+    if (!isTv) return;
+
+    if (isSaturn) {
+      const slug = item.slug || String(item.id).replace(/^saturn_/, '');
+      const currentEp = Number(item.episode) || 1;
+
+      // 1. Previous episode
+      if (currentEp > 1) {
+        this.prevEpisodeInfo = {
+          ...item,
+          episode: currentEp - 1,
+          episode_name: `Episodio ${currentEp - 1}`
+        };
+      }
+
+      // 2. Next episode: fetch details to check total episode count
+      try {
+        const details = await AnimeSaturnService.getAnimeDetails(slug);
+        const epCount = (details && Array.isArray(details.episodes)) ? details.episodes.length : 0;
+        if (epCount > 0 && currentEp < epCount) {
+          const nextEpNum = currentEp + 1;
+          const nextEpObj = details.episodes.find(e => Number(e.episode_number) === nextEpNum);
+          this.nextEpisodeInfo = {
+            ...item,
+            episode: nextEpNum,
+            episode_name: nextEpObj ? nextEpObj.name : `Episodio ${nextEpNum}`,
+            isNextSeason: false
+          };
+        }
+      } catch (err) {
+        console.warn('[Roxy Player] Error resolving Saturn adjacent episodes:', err);
+      }
+    } else {
+      // TMDB TV Series
+      const tvId = item.id;
+      const currentSeason = Number(item.season) || 1;
+      const currentEp = Number(item.episode) || 1;
+
+      try {
+        const details = await TMDBService.getDetails(tvId, 'tv');
+        if (!details || !Array.isArray(details.seasons)) return;
+
+        const regularSeasons = details.seasons
+          .filter(s => s.season_number > 0 && (s.episode_count === undefined || s.episode_count > 0))
+          .sort((a, b) => a.season_number - b.season_number);
+
+        const currSeasonObj = regularSeasons.find(s => s.season_number === currentSeason);
+        const currSeasonEpCount = currSeasonObj ? (currSeasonObj.episode_count || 50) : 50;
+
+        // 1. Previous Episode
+        if (currentEp > 1) {
+          this.prevEpisodeInfo = {
+            ...item,
+            media_type: 'tv',
+            season: currentSeason,
+            episode: currentEp - 1
+          };
+        } else if (currentSeason > 1) {
+          const prevSeasonObj = regularSeasons.find(s => s.season_number === currentSeason - 1);
+          if (prevSeasonObj && prevSeasonObj.episode_count > 0) {
+            this.prevEpisodeInfo = {
+              ...item,
+              media_type: 'tv',
+              season: currentSeason - 1,
+              episode: prevSeasonObj.episode_count
+            };
+          }
+        }
+
+        // 2. Next Episode
+        if (currentEp < currSeasonEpCount) {
+          const nextEpNum = currentEp + 1;
+          const isAvail = (window.CatalogService && CatalogService.episodes && CatalogService.episodes.size > 0)
+            ? CatalogService.isEpisodeAvailable(tvId, currentSeason, nextEpNum)
+            : true;
+
+          if (isAvail) {
+            this.nextEpisodeInfo = {
+              ...item,
+              media_type: 'tv',
+              season: currentSeason,
+              episode: nextEpNum,
+              isNextSeason: false
+            };
+          }
+        } else {
+          // Last episode of current season: check for next season
+          const nextSeasonObj = regularSeasons.find(s => s.season_number === currentSeason + 1);
+          if (nextSeasonObj && nextSeasonObj.episode_count > 0) {
+            const isAvail = (window.CatalogService && CatalogService.episodes && CatalogService.episodes.size > 0)
+              ? CatalogService.isEpisodeAvailable(tvId, currentSeason + 1, 1)
+              : true;
+
+            if (isAvail) {
+              this.nextEpisodeInfo = {
+                ...item,
+                media_type: 'tv',
+                season: currentSeason + 1,
+                episode: 1,
+                isNextSeason: true
+              };
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Roxy Player] Error resolving TMDB adjacent episodes:', err);
+      }
+    }
+
+    this.updateTopBarEpisodeButtons();
+  },
+
+  updateTopBarEpisodeButtons() {
+    if (this.btnPrevEp) {
+      if (this.prevEpisodeInfo) {
+        this.btnPrevEp.style.display = 'flex';
+        const s = this.prevEpisodeInfo.season;
+        const e = this.prevEpisodeInfo.episode;
+        this.btnPrevEp.title = (s !== undefined) ? `Episodio precedente (S${s}:E${e})` : `Episodio precedente (Ep. ${e})`;
+      } else {
+        this.btnPrevEp.style.display = 'none';
+      }
+    }
+
+    if (this.btnNextEp) {
+      if (this.nextEpisodeInfo) {
+        this.btnNextEp.style.display = 'flex';
+        const isNextS = this.nextEpisodeInfo.isNextSeason;
+        const s = this.nextEpisodeInfo.season;
+        const e = this.nextEpisodeInfo.episode;
+        if (isNextS) {
+          this.btnNextEp.title = `Prossima stagione (S${s}:E1)`;
+        } else {
+          this.btnNextEp.title = (s !== undefined) ? `Prossimo episodio (S${s}:E${e})` : `Prossimo episodio (Ep. ${e})`;
+        }
+      } else {
+        this.btnNextEp.style.display = 'none';
+      }
+    }
+  },
+
+  checkNextEpisodePrompt(currentTime, duration) {
+    if (!this.nextEpisodeInfo || this.isNextPromptDismissed) return;
+    if (!duration || duration <= 180 || !currentTime) return;
+
+    const remaining = duration - currentTime;
+    if (remaining <= 120 && remaining > 0) {
+      this.showNextEpisodePrompt();
+    }
+  },
+
+  showNextEpisodePrompt() {
+    if (!this.nextEpPrompt || this.isNextPromptDismissed || !this.nextEpisodeInfo) return;
+    if (this.promptNextLabel) {
+      this.promptNextLabel.textContent = (this.nextEpisodeInfo && this.nextEpisodeInfo.isNextSeason) ? 'Prossima Stagione' : 'Prossimo Episodio';
+    }
+    this.nextEpPrompt.style.display = 'flex';
+  },
+
+  hideNextEpisodePrompt() {
+    if (this.nextEpPrompt) {
+      this.nextEpPrompt.style.display = 'none';
+    }
+  },
+
+  dismissNextEpisodePrompt() {
+    this.isNextPromptDismissed = true;
+    this.hideNextEpisodePrompt();
+  },
+
+  playNextEpisode() {
+    if (!this.nextEpisodeInfo) return;
+    const nextItem = { ...this.nextEpisodeInfo };
+    this.hideNextEpisodePrompt();
+
+    // Save current episode as completed with pointer to next episode
+    if (this.currentItem) {
+      StorageService.saveWatchProgress(
+        this.currentItem,
+        this.calculateCurrentPlaybackTime(),
+        this.estimatedDuration || 2700,
+        { nextEpisode: nextItem }
+      );
+    }
+
+    console.log('[Roxy Player] Advancing to next episode:', nextItem);
+    this.play(nextItem, null, 0);
+  },
+
+  playPrevEpisode() {
+    if (!this.prevEpisodeInfo) return;
+    const prevItem = { ...this.prevEpisodeInfo };
+    this.hideNextEpisodePrompt();
+
+    // Save current episode position before leaving
+    if (this.currentItem) {
+      StorageService.saveWatchProgress(
+        this.currentItem,
+        this.calculateCurrentPlaybackTime(),
+        this.estimatedDuration || 2700
+      );
+    }
+
+    console.log('[Roxy Player] Going back to previous episode:', prevItem);
+    this.play(prevItem, null, 0);
   },
 
   updatePlayBtnIcon() {
@@ -1252,6 +1558,18 @@ const PlayerController = {
     // Toggle fullscreen on 'F' key (70)
     if (code === 70) {
       this.toggleFullscreen();
+      return true;
+    }
+
+    // Next episode on 'N' key (78)
+    if ((code === 78 || (e && (e.key === 'n' || e.key === 'N'))) && this.nextEpisodeInfo) {
+      this.playNextEpisode();
+      return true;
+    }
+
+    // Previous episode on 'P' key (80)
+    if ((code === 80 || (e && (e.key === 'p' || e.key === 'P'))) && this.prevEpisodeInfo) {
+      this.playPrevEpisode();
       return true;
     }
 

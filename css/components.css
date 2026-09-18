@@ -1536,6 +1536,87 @@
   transform: translateY(-50%) scale(1.15);
 }
 
+/* Next Episode Prompt Popup */
+.player-next-ep-prompt {
+  position: absolute;
+  bottom: 85px;
+  right: 36px;
+  z-index: 99;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(18, 18, 28, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.7), 0 0 20px rgba(99, 102, 241, 0.25);
+  padding: 8px 10px 8px 16px;
+  border-radius: 40px;
+  pointer-events: auto !important;
+  animation: promptSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes promptSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.prompt-btn-next {
+  background: #6366f1;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.95rem;
+  border: none;
+  border-radius: 30px;
+  padding: 10px 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s, box-shadow 0.2s;
+}
+
+.prompt-btn-next:hover,
+.prompt-btn-next:focus,
+.prompt-btn-next.focused {
+  background: #4f46e5;
+  transform: scale(1.05);
+  box-shadow: 0 0 24px rgba(99, 102, 241, 0.8);
+  outline: 2px solid #ffffff;
+}
+
+.prompt-btn-close {
+  background: rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+  border: none;
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  transition: transform 0.2s ease, background 0.2s, color 0.2s;
+}
+
+.prompt-btn-close:hover,
+.prompt-btn-close:focus,
+.prompt-btn-close.focused {
+  background: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+  transform: scale(1.12);
+  outline: 2px solid #ffffff;
+}
+
 /* Toast Notifications */
 .toast-container {
   position: fixed;
