@@ -27,6 +27,7 @@ class RoxyApp {
     }
 
     this.bindHeaderEvents();
+    this.bindHeroEvents();
     this.bindModalEvents();
     this.bindProfileEvents();
     this.bindSearchEvents();
@@ -309,6 +310,36 @@ class RoxyApp {
   // =========================================================================
   // Hero Billboard Logic
   // =========================================================================
+  bindHeroEvents() {
+    const btnPrev = document.getElementById('hero-btn-prev');
+    if (btnPrev) {
+      btnPrev.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.prevHero();
+      });
+    }
+
+    const btnNext = document.getElementById('hero-btn-next');
+    if (btnNext) {
+      btnNext.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.nextHero();
+      });
+    }
+  }
+
+  prevHero() {
+    if (!this.heroItems || this.heroItems.length === 0) return;
+    this.heroIndex = (this.heroIndex - 1 + this.heroItems.length) % this.heroItems.length;
+    this.renderHeroBillboard();
+  }
+
+  nextHero() {
+    if (!this.heroItems || this.heroItems.length === 0) return;
+    this.heroIndex = (this.heroIndex + 1) % this.heroItems.length;
+    this.renderHeroBillboard();
+  }
+
   renderHeroBillboard() {
     if (!this.heroItems || this.heroItems.length === 0) return;
     const item = this.heroItems[this.heroIndex];
@@ -374,12 +405,23 @@ class RoxyApp {
       };
     }
 
-    // Render Indicator Dots
+    // Render Clickable Indicator Dots
     const dotsContainer = document.getElementById('hero-dots');
     if (dotsContainer) {
       dotsContainer.innerHTML = this.heroItems.map((_, i) => 
-        `<div class="hero-dot ${i === this.heroIndex ? 'active' : ''}"></div>`
+        `<button class="hero-dot navigable focus-compact ${i === this.heroIndex ? 'active' : ''}" data-index="${i}" title="Vai al titolo ${i + 1}" tabindex="0"></button>`
       ).join('');
+
+      dotsContainer.querySelectorAll('.hero-dot').forEach(dot => {
+        dot.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = parseInt(dot.getAttribute('data-index'), 10);
+          if (!isNaN(idx) && idx !== this.heroIndex) {
+            this.heroIndex = idx;
+            this.renderHeroBillboard();
+          }
+        });
+      });
     }
 
     // Auto rotate every 9 seconds

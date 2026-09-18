@@ -208,6 +208,14 @@ class SpatialNavigator {
       }
     }
 
+    const activeEl = document.activeElement;
+    const isEditingText = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
+
+    // If typing in an input field or textarea, allow Backspace to delete text normally!
+    if (code === CONFIG.KEYS.BACK_BACKSPACE && isEditingText) {
+      return;
+    }
+
     // Back Key Handling
     if (code === CONFIG.KEYS.BACK_WEBOS || code === CONFIG.KEYS.BACK_ESC || code === CONFIG.KEYS.BACK_BACKSPACE) {
       e.preventDefault();
@@ -250,6 +258,9 @@ class SpatialNavigator {
     else if (code === CONFIG.KEYS.DOWN) direction = 'down';
 
     if (direction) {
+      if (isEditingText && (direction === 'left' || direction === 'right')) {
+        return;
+      }
       e.preventDefault();
       this.navigate(direction);
     }
