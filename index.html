@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920, height=1080, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Roxy - Streaming Player</title>
+  <link rel="stylesheet" href="css/oled-theme.css">
+  <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+  <div id="app-container">
+
+    <!-- ====================================================================
+         Top Navigation Bar
+         ==================================================================== -->
+    <header class="top-header">
+      <div class="header-left">
+        <div class="brand-logo">
+          <img src="assets/logo.png" alt="Logo" class="brand-icon-img" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover;">
+        </div>
+        <nav class="nav-links">
+          <button class="nav-item navigable focus-compact nav-active" data-section="home" tabindex="0">Home</button>
+          <button class="nav-item navigable focus-compact" data-section="movies" tabindex="0">Film</button>
+          <button class="nav-item navigable focus-compact" data-section="tv" tabindex="0">Serie TV</button>
+          <button class="nav-item navigable focus-compact" data-section="watchlist" tabindex="0">La Mia Lista</button>
+        </nav>
+      </div>
+      <div class="header-right">
+        <button id="nav-search-btn" class="btn-search-trigger navigable focus-compact" data-section="search" tabindex="0" title="Cerca">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </button>
+        <div id="clock-display" class="clock-display">12:00</div>
+      </div>
+    </header>
+
+    <!-- ====================================================================
+         Main Scrollable Viewport
+         ==================================================================== -->
+    <main class="view-container">
+
+      <!-- Home View -->
+      <section id="view-home" class="view-section active">
+        <!-- Hero Billboard Banner -->
+        <div class="hero-billboard" id="hero-billboard">
+          <img id="hero-backdrop" class="hero-backdrop-img" src="assets/bgImage.png" alt="Featured Backdrop">
+          <div class="hero-vignette-left"></div>
+          <div class="hero-vignette-bottom"></div>
+          <div class="hero-vignette-top"></div>
+
+          <div class="hero-content">
+            <div id="hero-badges" class="hero-badge-row"></div>
+            <h1 id="hero-title" class="hero-title">Caricamento...</h1>
+            <p id="hero-overview" class="hero-overview">Esplora il catalogo di film e serie TV.</p>
+            <div class="hero-actions">
+              <button id="hero-btn-play" class="btn-primary-play navigable" tabindex="0">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                Riproduci
+              </button>
+              <button id="hero-btn-info" class="btn-secondary-glass navigable" tabindex="0">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                Altre Info
+              </button>
+              <button id="hero-btn-watchlist" class="btn-secondary-glass navigable" tabindex="0">
+                + La Mia Lista
+              </button>
+            </div>
+          </div>
+
+          <div id="hero-dots" class="hero-dots"></div>
+        </div>
+
+        <!-- Horizontal Content Rows Container -->
+        <div class="rows-wrapper" id="home-rows-container"></div>
+      </section>
+
+      <!-- Movies View -->
+      <section id="view-movies" class="view-section">
+        <div style="padding: 110px 60px 20px 60px;">
+          <h1 style="font-size: 2.2rem; font-weight: 800;" class="text-gradient-indigo">Tutti i Film</h1>
+        </div>
+        <div class="rows-wrapper" id="movies-rows-container"></div>
+      </section>
+
+      <!-- TV Shows View -->
+      <section id="view-tv" class="view-section">
+        <div style="padding: 110px 60px 20px 60px;">
+          <h1 style="font-size: 2.2rem; font-weight: 800;" class="text-gradient-indigo">Tutte le Serie TV</h1>
+        </div>
+        <div class="rows-wrapper" id="tv-rows-container"></div>
+      </section>
+
+      <!-- Watchlist View -->
+      <section id="view-watchlist" class="view-section">
+        <div style="padding: 110px 60px 30px 60px;">
+          <h1 style="font-size: 2.2rem; font-weight: 800;" class="text-gradient-indigo">La Mia Lista</h1>
+        </div>
+        <div style="padding: 0 60px;">
+          <div class="search-results-grid" id="watchlist-grid"></div>
+        </div>
+      </section>
+
+      <!-- Search View -->
+      <section id="view-search" class="view-section">
+        <div class="search-container">
+          <div class="search-input-wrapper navigable focus-compact" tabindex="0">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary-indigo-light);">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" id="search-input" class="search-input-text" placeholder="Cerca film, serie TV, attori..." autocomplete="off">
+          </div>
+          <div class="search-results-grid" id="search-results-grid"></div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ====================================================================
+         Content Details Modal Dialog
+         ==================================================================== -->
+    <div id="details-modal" class="modal-backdrop">
+      <div class="modal-card">
+        <button id="modal-btn-close" class="modal-close-btn navigable focus-compact" tabindex="0" title="Chiudi">✕</button>
+        <div class="modal-header-hero">
+          <img id="modal-backdrop-img" class="modal-backdrop-img" src="" alt="Backdrop">
+          <div class="modal-vignette"></div>
+          <div class="modal-hero-info">
+            <div id="modal-badges" class="hero-badge-row"></div>
+            <h2 id="modal-title" class="modal-title">Titolo</h2>
+            <div class="hero-actions" style="margin-top: 6px;">
+              <button id="modal-btn-play" class="btn-primary-play navigable" tabindex="0">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                Riproduci
+              </button>
+              <button id="modal-btn-watchlist" class="btn-secondary-glass navigable" tabindex="0">
+                + La Mia Lista
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-body-content">
+          <p id="modal-overview" class="modal-overview"></p>
+          <div id="modal-meta-grid" class="modal-meta-grid"></div>
+          <div id="modal-episodes-container" class="modal-episodes-section" style="display: none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         Integrated Video Player Overlay
+         ==================================================================== -->
+    <div id="player-view" class="player-container">
+      <video id="native-video-player" class="video-player-element" style="display: none;" playsinline></video>
+      <iframe id="stream-iframe-player" class="video-frame" 
+        allow="fullscreen; autoplay; encrypted-media; picture-in-picture; clipboard-write" 
+        referrerpolicy="origin" 
+        frameborder="0">
+      </iframe>
+
+      <!-- Player OSD (On-Screen Display) -->
+      <div id="player-osd" class="player-osd">
+        <div class="osd-top">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <button id="osd-btn-back" class="osd-btn navigable focus-compact" tabindex="0" title="Esci">✕</button>
+            <h2 id="player-title" class="osd-media-title">Titolo Streaming</h2>
+          </div>
+        </div>
+
+        <div class="osd-bottom">
+          <div class="osd-progress-wrapper">
+            <span id="osd-time-current" class="osd-time-text">00:00</span>
+            <div class="osd-progress-track">
+              <div id="osd-progress-filled" class="osd-progress-filled"></div>
+            </div>
+            <span id="osd-time-duration" class="osd-time-text">00:00</span>
+          </div>
+
+          <div class="osd-controls-row">
+            <button id="osd-btn-rw" class="osd-btn navigable focus-compact" tabindex="0" title="Riavvolgi 10s">↺ 10</button>
+            <button id="osd-btn-play" class="osd-btn play-btn navigable" tabindex="0" title="Play/Pausa">⏸</button>
+            <button id="osd-btn-ff" class="osd-btn navigable focus-compact" tabindex="0" title="Avanza 10s">10 ↻</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/config.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/catalog-service.js"></script>
+  <script src="js/tmdb-service.js"></script>
+  <script src="js/spatial-nav.js"></script>
+  <script src="js/webos-bridge.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

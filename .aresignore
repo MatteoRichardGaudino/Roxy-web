@@ -1,0 +1,8 @@
+webOS_TV_26_Simulator_1.5.0
+dist
+node_modules
+.git
+.gitignore
+intex.html
+generate_assets.ps1
+*.ipk

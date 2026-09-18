@@ -1,0 +1,180 @@
+/* ==========================================================================
+   ROXY - OLED Pure Black & Indigo Theme for LG webOS
+   Optimized for 1080p / 4K OLED Smart TVs (Zero near-black banding)
+   ========================================================================== */
+
+:root {
+  /* Color Palette - OLED Optimized Pure Black */
+  --bg-black: #000000;
+  --bg-surface: rgba(18, 18, 28, 0.72);
+  --bg-surface-hover: rgba(28, 28, 44, 0.85);
+  --bg-card: rgba(22, 22, 34, 0.6);
+  --bg-glass: rgba(255, 255, 255, 0.06);
+  --bg-glass-active: rgba(255, 255, 255, 0.14);
+
+  /* Primary Accent: Indigo */
+  --primary-indigo: #6366f1;
+  --primary-indigo-dark: #4338ca;
+  --primary-indigo-light: #818cf8;
+  --primary-indigo-glow: rgba(99, 102, 241, 0.5);
+  --primary-indigo-subtle: rgba(99, 102, 241, 0.16);
+
+  /* Secondary Accents */
+  --accent-amber: #f59e0b;
+  --accent-emerald: #10b981;
+  --accent-rose: #f43f5e;
+
+  /* Typography Colors */
+  --text-pure: #ffffff;
+  --text-high: #f1f5f9;
+  --text-med: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+
+  /* Borders & Dividers */
+  --border-glass: rgba(255, 255, 255, 0.09);
+  --border-indigo: rgba(99, 102, 241, 0.4);
+  --border-focused: #818cf8;
+
+  /* Border Radii */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 30px;
+  --radius-full: 9999px;
+
+  /* Elevation Shadows with Indigo Glow for OLED */
+  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.9);
+  --shadow-focus: 0 0 0 3px var(--border-focused), 0 12px 35px var(--primary-indigo-glow);
+  --shadow-focus-subtle: 0 0 0 2px var(--border-focused), 0 6px 20px var(--primary-indigo-glow);
+
+  /* Animation Timings */
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-quick: 0.18s;
+  --duration-normal: 0.28s;
+}
+
+/* Global Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+html, body {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--bg-black);
+  color: var(--text-high);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 18px;
+  line-height: 1.4;
+  cursor: default;
+}
+
+/* Hide all scrollbars for seamless TV experience */
+::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+* {
+  scrollbar-width: none;
+}
+
+/* TV Focus Management & Spatial Navigation Styles */
+.navigable {
+  position: relative;
+  outline: none;
+  cursor: pointer;
+  transition: transform var(--duration-normal) var(--ease-spring),
+              box-shadow var(--duration-normal) var(--ease-spring),
+              border-color var(--duration-normal) var(--ease-spring),
+              background-color var(--duration-normal) var(--ease-spring);
+  will-change: transform, box-shadow;
+}
+
+.navigable.focused,
+.navigable:focus-visible {
+  outline: none;
+  z-index: 20 !important;
+  transform: scale(1.07);
+  box-shadow: var(--shadow-focus);
+  border-color: var(--border-focused) !important;
+}
+
+/* Subtle focus for small buttons/tags */
+.navigable.focus-compact.focused {
+  transform: scale(1.04);
+  box-shadow: var(--shadow-focus-subtle);
+}
+
+/* Frosted Glass Utilities */
+.glass-panel {
+  background: var(--bg-surface);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass);
+}
+
+.glass-pill {
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-full);
+}
+
+/* Brand Indigo Glow Utilities */
+.glow-indigo {
+  box-shadow: 0 0 25px var(--primary-indigo-glow);
+}
+
+.text-gradient-indigo {
+  background: linear-gradient(135deg, #ffffff 20%, var(--primary-indigo-light) 65%, var(--primary-indigo) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.badge-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.badge-quality {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-pure);
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  letter-spacing: 0.5px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.badge-indigo {
+  background: var(--primary-indigo-subtle);
+  color: var(--primary-indigo-light);
+  font-weight: 600;
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-indigo);
+}
