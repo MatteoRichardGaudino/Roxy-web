@@ -346,7 +346,8 @@ const PlayerController = {
       }
     } catch (e) {}
 
-    if (item.source === 'animesaturn') {
+    const isSaturn = (item.source === 'animesaturn' || (item.id && String(item.id).startsWith('saturn_')));
+    if (isSaturn) {
       this.playSaturn(item, explicitResumeTime);
       return;
     }
@@ -389,24 +390,11 @@ const PlayerController = {
 
     const resumeSec = Math.floor(resumeTime || 0);
 
-    let displayTitle = item.title || item.name || 'Streaming';
-    if (isTv) {
-      displayTitle += ` - S${season}:E${episode}`;
-      if (item.episode_name) {
-        displayTitle += ` "${item.episode_name}"`;
-      }
-    }
-
-    if (this.titleEl) {
-      this.titleEl.textContent = displayTitle;
-    }
+    const displayTitle = this.updatePlayerTitle(item);
 
     if (this.loadingCurtain) {
       this.loadingCurtain.classList.remove('fade-out');
       this.loadingCurtain.style.display = 'flex';
-    }
-    if (this.loadingTitle) {
-      this.loadingTitle.textContent = displayTitle;
     }
 
     this.container.classList.add('active');
@@ -521,16 +509,11 @@ const PlayerController = {
 
     const resumeSec = Math.floor(resumeTime || 0);
 
-    const cleanTitle = (item.title || item.name || 'Anime').replace(/\s*\((ITA|SUB|SUB ITA)\)\s*/gi, '').trim();
-    const subLabel = item.isDub ? 'DUB ITA' : 'SUB ITA';
-    const displayTitle = `🪐 ${cleanTitle} - Ep. ${epNum} (${subLabel})`;
-
-    if (this.titleEl) this.titleEl.textContent = displayTitle;
+    this.updatePlayerTitle(item);
     if (this.loadingCurtain) {
       this.loadingCurtain.classList.remove('fade-out');
       this.loadingCurtain.style.display = 'flex';
     }
-    if (this.loadingTitle) this.loadingTitle.textContent = displayTitle;
     this.container.classList.add('active');
 
     const osdBottom = this.osd ? this.osd.querySelector('.osd-bottom') : null;
@@ -1285,6 +1268,61 @@ const PlayerController = {
   // =========================================================================
   // Episode Navigation & Next Episode Prompt
   // =========================================================================
+  cleanBaseTitle(item) {
+    if (!item) return 'Streaming';
+    let raw = item.show_title || item.name || item.title || 'Streaming';
+    if (typeof raw !== 'string') raw = String(raw);
+    // 1. Remove leading emojis/symbols (e.g. 🪐)
+    raw = raw.replace(/^[^\w\s\d\u00C0-\u017F]+/gi, '').trim();
+    // 2. Remove any existing " - S\d+:E\d+.*" or " S\d+:E\d+.*"
+    raw = raw.replace(/\s*-\s*S\d+\s*:\s*E\d+.*$/i, '');
+    raw = raw.replace(/\s+S\d+\s*:\s*E\d+.*$/i, '');
+    // 3. Remove any existing " - Ep\.?\s*\d+.*" or " Ep\.?\s*\d+.*"
+    raw = raw.replace(/\s*-\s*Ep\.?\s*\d+.*$/i, '');
+    raw = raw.replace(/\s+Ep\.?\s*\d+.*$/i, '');
+    // 4. Remove language tags (ITA), (SUB ITA), (DUB ITA), etc.
+    raw = raw.replace(/\s*\((ITA|SUB|SUB ITA|DUB|DUB ITA)\)\s*/gi, '');
+    // 5. Remove quotes and trailing dashes
+    raw = raw.replace(/["“”«»]/g, '').replace(/[-–—]\s*$/, '').trim();
+    return raw || 'Streaming';
+  },
+
+  updatePlayerTitle(item) {
+    if (!item) return '';
+    const isSaturn = (item.source === 'animesaturn' || (item.id && String(item.id).startsWith('saturn_')));
+    const isTv = (item.media_type === 'tv' || isSaturn || !!item.name || (item.number_of_seasons !== undefined));
+    const baseTitle = this.cleanBaseTitle(item);
+
+    let displayTitle = baseTitle;
+    if (isSaturn) {
+      const epNum = Number(item.episode) || 1;
+      const subLabel = item.isDub ? 'DUB ITA' : 'SUB ITA';
+      displayTitle = `🪐 ${baseTitle} - Ep. ${epNum} (${subLabel})`;
+      if (item.episode_name && item.episode_name.trim() && !item.episode_name.startsWith('Episodio')) {
+        displayTitle += ` "${item.episode_name.trim()}"`;
+      }
+    } else if (isTv) {
+      const season = Number(item.season) || 1;
+      const episode = Number(item.episode) || 1;
+      displayTitle = `${baseTitle} - S${season}:E${episode}`;
+      if (item.episode_name && item.episode_name.trim()) {
+        displayTitle += ` "${item.episode_name.trim()}"`;
+      }
+    }
+
+    if (this.titleEl) {
+      this.titleEl.textContent = displayTitle;
+    }
+    if (this.loadingTitle) {
+      this.loadingTitle.textContent = displayTitle;
+    }
+    try {
+      document.title = `${displayTitle} | ${CONFIG.APP_NAME || 'Roxy'}`;
+    } catch (e) {}
+
+    return displayTitle;
+  },
+
   async resolveAdjacentEpisodes(item) {
     this.prevEpisodeInfo = null;
     this.nextEpisodeInfo = null;
@@ -1294,9 +1332,11 @@ const PlayerController = {
 
     if (!item) return;
 
-    const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+    const isSaturn = (item.source === 'animesaturn' || (item.id && String(item.id).startsWith('saturn_')));
     const isTv = (item.media_type === 'tv' || isSaturn || !!item.name || (item.number_of_seasons !== undefined));
     if (!isTv) return;
+
+    const baseTitle = this.cleanBaseTitle(item);
 
     if (isSaturn) {
       const slug = item.slug || String(item.id).replace(/^saturn_/, '');
@@ -1306,6 +1346,8 @@ const PlayerController = {
       if (currentEp > 1) {
         this.prevEpisodeInfo = {
           ...item,
+          source: 'animesaturn',
+          title: baseTitle,
           episode: currentEp - 1,
           episode_name: `Episodio ${currentEp - 1}`
         };
@@ -1315,15 +1357,25 @@ const PlayerController = {
       try {
         const details = await AnimeSaturnService.getAnimeDetails(slug);
         const epCount = (details && Array.isArray(details.episodes)) ? details.episodes.length : 0;
-        if (epCount > 0 && currentEp < epCount) {
-          const nextEpNum = currentEp + 1;
-          const nextEpObj = details.episodes.find(e => Number(e.episode_number) === nextEpNum);
-          this.nextEpisodeInfo = {
-            ...item,
-            episode: nextEpNum,
-            episode_name: nextEpObj ? nextEpObj.name : `Episodio ${nextEpNum}`,
-            isNextSeason: false
-          };
+        if (epCount > 0) {
+          const currEpObj = details.episodes.find(e => Number(e.episode_number) === currentEp);
+          if (currEpObj && currEpObj.name) {
+            item.episode_name = currEpObj.name;
+            this.updatePlayerTitle(item);
+          }
+
+          if (currentEp < epCount) {
+            const nextEpNum = currentEp + 1;
+            const nextEpObj = details.episodes.find(e => Number(e.episode_number) === nextEpNum);
+            this.nextEpisodeInfo = {
+              ...item,
+              source: 'animesaturn',
+              title: baseTitle,
+              episode: nextEpNum,
+              episode_name: nextEpObj ? nextEpObj.name : `Episodio ${nextEpNum}`,
+              isNextSeason: false
+            };
+          }
         }
       } catch (err) {
         console.warn('[Roxy Player] Error resolving Saturn adjacent episodes:', err);
@@ -1345,13 +1397,31 @@ const PlayerController = {
         const currSeasonObj = regularSeasons.find(s => s.season_number === currentSeason);
         const currSeasonEpCount = currSeasonObj ? (currSeasonObj.episode_count || 50) : 50;
 
+        // Fetch current season details to get episode titles
+        let currentSeasonEpisodes = [];
+        try {
+          const sData = await TMDBService.getSeasonDetails(tvId, currentSeason);
+          if (sData && Array.isArray(sData.episodes)) {
+            currentSeasonEpisodes = sData.episodes;
+          }
+        } catch (e) {}
+
+        const currEpData = currentSeasonEpisodes.find(e => Number(e.episode_number) === currentEp);
+        if (currEpData && currEpData.name) {
+          item.episode_name = currEpData.name;
+          this.updatePlayerTitle(item);
+        }
+
         // 1. Previous Episode
         if (currentEp > 1) {
+          const prevEpData = currentSeasonEpisodes.find(e => Number(e.episode_number) === currentEp - 1);
           this.prevEpisodeInfo = {
             ...item,
             media_type: 'tv',
+            title: baseTitle,
             season: currentSeason,
-            episode: currentEp - 1
+            episode: currentEp - 1,
+            episode_name: prevEpData ? prevEpData.name : ''
           };
         } else if (currentSeason > 1) {
           const prevSeasonObj = regularSeasons.find(s => s.season_number === currentSeason - 1);
@@ -1359,8 +1429,10 @@ const PlayerController = {
             this.prevEpisodeInfo = {
               ...item,
               media_type: 'tv',
+              title: baseTitle,
               season: currentSeason - 1,
-              episode: prevSeasonObj.episode_count
+              episode: prevSeasonObj.episode_count,
+              episode_name: ''
             };
           }
         }
@@ -1368,6 +1440,7 @@ const PlayerController = {
         // 2. Next Episode
         if (currentEp < currSeasonEpCount) {
           const nextEpNum = currentEp + 1;
+          const nextEpData = currentSeasonEpisodes.find(e => Number(e.episode_number) === nextEpNum);
           const isAvail = (window.CatalogService && CatalogService.episodes && CatalogService.episodes.size > 0)
             ? CatalogService.isEpisodeAvailable(tvId, currentSeason, nextEpNum)
             : true;
@@ -1376,8 +1449,10 @@ const PlayerController = {
             this.nextEpisodeInfo = {
               ...item,
               media_type: 'tv',
+              title: baseTitle,
               season: currentSeason,
               episode: nextEpNum,
+              episode_name: nextEpData ? nextEpData.name : '',
               isNextSeason: false
             };
           }
@@ -1393,8 +1468,10 @@ const PlayerController = {
               this.nextEpisodeInfo = {
                 ...item,
                 media_type: 'tv',
+                title: baseTitle,
                 season: currentSeason + 1,
                 episode: 1,
+                episode_name: '',
                 isNextSeason: true
               };
             }
@@ -1471,6 +1548,9 @@ const PlayerController = {
     const nextItem = { ...this.nextEpisodeInfo };
     this.hideNextEpisodePrompt();
 
+    // Immediately update title to show next episode number and title without delay
+    this.updatePlayerTitle(nextItem);
+
     // Save current episode as completed with pointer to next episode
     if (this.currentItem) {
       StorageService.saveWatchProgress(
@@ -1489,6 +1569,9 @@ const PlayerController = {
     if (!this.prevEpisodeInfo) return;
     const prevItem = { ...this.prevEpisodeInfo };
     this.hideNextEpisodePrompt();
+
+    // Immediately update title to show previous episode number and title without delay
+    this.updatePlayerTitle(prevItem);
 
     // Save current episode position before leaving
     if (this.currentItem) {

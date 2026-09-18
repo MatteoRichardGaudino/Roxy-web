@@ -1536,7 +1536,7 @@
   transform: translateY(-50%) scale(1.15);
 }
 
-/* Next Episode Prompt Popup */
+/* Next Episode Prompt Popup (Floating buttons) */
 .player-next-ep-prompt {
   position: absolute;
   bottom: 85px;
@@ -1544,14 +1544,14 @@
   z-index: 99;
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: rgba(18, 18, 28, 0.92);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1.5px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.7), 0 0 20px rgba(99, 102, 241, 0.25);
-  padding: 8px 10px 8px 16px;
-  border-radius: 40px;
+  gap: 12px;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
   pointer-events: auto !important;
   animation: promptSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -1572,14 +1572,14 @@
   color: #ffffff;
   font-weight: 700;
   font-size: 0.95rem;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 30px;
-  padding: 10px 18px;
+  padding: 12px 22px;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6), 0 0 20px rgba(99, 102, 241, 0.5);
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s, box-shadow 0.2s;
 }
 
@@ -1587,34 +1587,38 @@
 .prompt-btn-next:focus,
 .prompt-btn-next.focused {
   background: #4f46e5;
-  transform: scale(1.05);
-  box-shadow: 0 0 24px rgba(99, 102, 241, 0.8);
+  transform: scale(1.06);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.7), 0 0 28px rgba(99, 102, 241, 0.9);
   outline: 2px solid #ffffff;
 }
 
 .prompt-btn-close {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(18, 18, 28, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: #cbd5e1;
-  border: none;
   border-radius: 50%;
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
-  transition: transform 0.2s ease, background 0.2s, color 0.2s;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+  transition: transform 0.2s ease, background 0.2s, color 0.2s, box-shadow 0.2s;
 }
 
 .prompt-btn-close:hover,
 .prompt-btn-close:focus,
 .prompt-btn-close.focused {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.3);
   color: #ffffff;
   transform: scale(1.12);
   outline: 2px solid #ffffff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.8);
 }
 
 /* Toast Notifications */
