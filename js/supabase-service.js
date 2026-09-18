@@ -34,7 +34,13 @@ const SupabaseService = {
       }
 
       if (response.status === 204) return null;
-      return await response.json();
+      const text = await response.text();
+      if (!text || text.trim() === '') return null;
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return text;
+      }
     } catch (err) {
       clearTimeout(timeoutId);
       console.warn(`[SupabaseService] Request error on ${endpoint}:`, err.message);

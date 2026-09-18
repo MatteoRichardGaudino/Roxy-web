@@ -347,6 +347,13 @@
     <div id="player-view" class="player-container">
       <!-- Cinematic Playback Start & Loading Transition -->
       <div id="player-loading-curtain" class="player-loading-curtain">
+        <button id="player-loading-btn-back" class="player-curtain-back-btn navigable focus-compact" tabindex="0" title="Torna indietro">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Indietro</span>
+        </button>
         <div class="player-curtain-content">
           <div class="player-loading-spinner-ring">
             <div class="spinner-core"></div>
@@ -358,8 +365,8 @@
 
       <video id="native-video-player" class="video-player-element" style="display: none;" playsinline></video>
       <iframe id="stream-iframe-player" class="video-frame" 
-        allow="fullscreen; autoplay; encrypted-media; picture-in-picture; clipboard-write" 
-        referrerpolicy="origin" 
+        allow="fullscreen; autoplay; encrypted-media; picture-in-picture; clipboard-write; display-capture" 
+        referrerpolicy="no-referrer" 
         frameborder="0">
       </iframe>
 

@@ -1137,6 +1137,35 @@
   pointer-events: none;
 }
 
+.player-curtain-back-btn {
+  position: absolute;
+  top: 36px;
+  left: 44px;
+  z-index: 550;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 22px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  border-radius: var(--radius-full);
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.player-curtain-back-btn:hover,
+.player-curtain-back-btn.focus-active {
+  background: rgba(99, 102, 241, 0.35);
+  border-color: var(--primary-indigo-light);
+  transform: scale(1.06);
+  box-shadow: 0 0 24px var(--primary-indigo-glow);
+}
+
 .player-curtain-content {
   display: flex;
   flex-direction: column;

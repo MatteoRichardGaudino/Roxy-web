@@ -97,6 +97,11 @@ const PlayerController = {
       btnBack.addEventListener('click', () => this.close());
     }
 
+    const btnCurtainBack = document.getElementById('player-loading-btn-back');
+    if (btnCurtainBack) {
+      btnCurtainBack.addEventListener('click', () => this.close());
+    }
+
     const btnRw = document.getElementById('osd-btn-rw');
     if (btnRw) {
       btnRw.addEventListener('click', () => this.seek(-10));
@@ -224,15 +229,20 @@ const PlayerController = {
 
     const osdBottom = this.osd ? this.osd.querySelector('.osd-bottom') : null;
 
+    if (this.loadingTimeout) clearTimeout(this.loadingTimeout);
+    this.loadingTimeout = setTimeout(() => {
+      this.hideLoadingCurtain();
+    }, 7000);
+
     // If stream URL is an iframe provider (vixsrc embed)
     if (streamUrl.startsWith('http') && !streamUrl.endsWith('.mp4') && !streamUrl.endsWith('.m3u8')) {
       this.videoEl.style.display = 'none';
       this.iframeEl.style.display = 'block';
       this.iframeEl.removeAttribute('sandbox');
-      this.iframeEl.setAttribute('allow', 'fullscreen; autoplay; encrypted-media; picture-in-picture');
-      this.iframeEl.setAttribute('referrerpolicy', 'origin');
+      this.iframeEl.setAttribute('allow', 'fullscreen; autoplay; encrypted-media; picture-in-picture; clipboard-write; display-capture');
+      this.iframeEl.setAttribute('referrerpolicy', 'no-referrer');
 
-      // Load direct JWPlayer embed via API (bypasses outer Next.js iframe, eliminates CSP errors, purges ad scripts, sets 1080p, Italian audio, and resume time)
+      // Load direct JWPlayer embed via API on webOS, or direct no-referrer embed on Web browser
       this.loadDirectCleanEmbed(item, isTv, season, episode, streamUrl, resumeTime);
       
       // Configure non-blocking OSD in iframe mode
@@ -620,8 +630,21 @@ const PlayerController = {
       </script>
     `;
 
+    // If not running on webOS, browser CORS blocks fetch to vixsrc.to/api.
+    // Instead of failing or getting stuck, directly embed the URL with no-referrer
+    if (!window.WebOSBridge || !window.WebOSBridge.isWebOS) {
+      console.log('[Roxy Player] Web browser environment: loading direct no-referrer embed URL:', fallbackUrl);
+      this.iframeEl.removeAttribute('srcdoc');
+      this.iframeEl.setAttribute('referrerpolicy', 'no-referrer');
+      this.iframeEl.src = fallbackUrl;
+      this.iframeEl.onload = () => {
+        setTimeout(() => this.hideLoadingCurtain(), 1200);
+      };
+      return;
+    }
+
     try {
-      // 1. Try to fetch direct embed URL from API
+      // 1. Try to fetch direct embed URL from API (webOS only)
       let apiUrl = isTv 
         ? CONFIG.STREAM_PROVIDERS.VIXSRC_API_TV.replace('{id}', item.id).replace('{season}', season).replace('{episode}', episode)
         : CONFIG.STREAM_PROVIDERS.VIXSRC_API_MOVIE.replace('{id}', item.id);
@@ -748,95 +771,64 @@ const PlayerController = {
             function selectItalianAudio(tracks) {
               if (!tracks || tracks.length === 0) return;
               const itIdx = tracks.findIndex(t => {
-                const l = ((t.language || "") + " " + (t.label || "") + " " + (t.name || "")).toLowerCase();
-                return l.includes("ita") || l.includes("italian") || l === "it";
+                const l = (t.language || t.label || t.name || '').toLowerCase();
+                return l.includes('it') || l.includes('ita') || l.includes('italian');
               });
-              if (itIdx !== -1) {
+              if (itIdx >= 0) {
                 n.setCurrentAudioTrack(itIdx);
-                console.log("[Roxy Player] Set Italian audio track index:", itIdx, tracks[itIdx]);
+                console.log("[Roxy Player] Set Italian audio track index:", itIdx);
               }
             }
 
-            n.on("levels", e => {
-              if (e && e.levels) selectMaxQuality(e.levels);
-            });
+            n.on("ready", function() {
+              selectItalianAudio(n.getAudioTracks());
+              selectMaxQuality(n.getQualityLevels());
+              
+              if (${resumeSec} > 0 && !hasResumed) {
+                hasResumed = true;
+                n.seek(${resumeSec});
+              }
 
-            n.on("audioTracks", e => {
-              if (e && e.tracks) selectItalianAudio(e.tracks);
-            });
-
-            n.on("play", e => {
-              window.parent.postMessage({ type: "PLAYER_EVENT", data: { event: "play", data: e } }, "*");
-            });
-
-            n.on("pause", e => {
-              window.parent.postMessage({ type: "PLAYER_EVENT", data: { event: "pause", data: e } }, "*");
-            });
-
-            n.on("seeked", e => {
-              const t = Math.round(e.currentTime);
-              window.parent.postMessage({ type: "PLAYER_EVENT", data: { event: "seeked", data: e, currentTime: t, duration: e.duration } }, "*");
-            });
-
-            n.on("complete", e => {
-              window.parent.postMessage({ type: "PLAYER_EVENT", data: { event: "ended", data: e } }, "*");
-            });
-
-            n.on("time", e => {
-              const t = Math.round(e.currentTime);
-              if (t != w) {
-                w = t;
+              // Send progress notification to parent Roxy UI
+              try {
                 window.parent.postMessage({
                   type: "ROXY_PLAYBACK_PROGRESS",
-                  currentTime: t,
-                  duration: e.duration
+                  currentTime: n.getPosition(),
+                  duration: n.getDuration()
                 }, "*");
+              } catch(e) {}
+            });
+
+            n.on("levels", function(e) {
+              selectMaxQuality(e.levels);
+            });
+
+            n.on("audioTracks", function(e) {
+              selectItalianAudio(e.tracks);
+            });
+
+            n.on("time", function(e) {
+              const now = Date.now();
+              if (now - w > 1000) {
+                w = now;
+                try {
+                  window.parent.postMessage({
+                    type: "ROXY_PLAYBACK_PROGRESS",
+                    currentTime: e.position,
+                    duration: e.duration
+                  }, "*");
+                } catch(err) {}
               }
             });
 
-            n.on("ready", async () => {
-              const startSec = ${resumeSec};
-              if (startSec > 5 && !hasResumed) {
-                hasResumed = true;
-                n.seek(startSec);
-                console.log("[Roxy Player] Resumed at exact second:", startSec);
-              } else {
-                n.play(true);
-              }
-
+            n.on("seeked", function(e) {
               try {
-                if (n.getQualityLevels) selectMaxQuality(n.getQualityLevels());
-                if (n.getAudioTracks) selectItalianAudio(n.getAudioTracks());
+                window.parent.postMessage({
+                  type: "ROXY_PLAYBACK_PROGRESS",
+                  currentTime: e.position,
+                  duration: n.getDuration()
+                }, "*");
               } catch(err) {}
-
-              // Setup 10s forward button in JWPlayer controls bar
-              let btnContainer = document.querySelector(".jw-button-container");
-              for (btnContainer && setupExtraControls(); !btnContainer;) {
-                await new Promise(r => setTimeout(r, 250));
-                btnContainer = document.querySelector(".jw-button-container");
-                if (btnContainer) setupExtraControls();
-              }
-
-              function setupExtraControls() {
-                try {
-                  const rwDisplay = document.querySelector(".jw-display-icon-rewind");
-                  if (rwDisplay) {
-                    const ffDisplay = rwDisplay.cloneNode(true);
-                    const icon = ffDisplay.querySelector(".jw-icon-rewind");
-                    if (icon) {
-                      const svg = icon.querySelector("svg");
-                      if (svg) svg.style.backgroundImage = "url('/jwplayer-8.36.4/icons/carbon_forward-10.svg')";
-                      icon.ariaLabel = "Forward 10 Seconds";
-                    }
-                    const nextBtn = document.querySelector(".jw-display-icon-next");
-                    if (nextBtn) {
-                      nextBtn.parentNode.insertBefore(ffDisplay, nextBtn);
-                      nextBtn.style.display = "none";
-                    }
-                    ffDisplay.onclick = () => n.seek(n.getPosition() + 10);
-                  }
-                } catch(err) {}
-              }
             });
           }
 
@@ -869,28 +861,26 @@ const PlayerController = {
         return;
       }
     } catch (err) {
-      console.warn('[Roxy Player] Direct API pipeline notice, using cleaned fallback page:', err);
+      console.warn('[Roxy Player] Direct API pipeline notice, using fallback page:', err);
     }
 
-    // Fallback: Fetch the outer page and clean it
-    try {
-      const response = await fetch(fallbackUrl);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const rawHtml = await response.text();
-      let cleanHtml = rawHtml.replace('<head>', '<head><base href="https://vixsrc.to/">' + antiAdScript);
-      cleanHtml = cleanHtml
-        .replace(/<script[^>]*spbgc\.com[^>]*><\/script>/gi, '')
-        .replace(/\(function\(s\)\{s\.dataset\.zone=['"][^'"]+['"],s\.src=['"]https:\/\/spbgc\.com\/tag\.min\.js['"]\}\)\([^\)]+\)/gi, '');
-      this.iframeEl.srcdoc = cleanHtml;
-    } catch (fallbackErr) {
-      console.warn('[Roxy Player] Fallback to direct src:', fallbackErr);
-      this.iframeEl.removeAttribute('srcdoc');
-      this.iframeEl.src = fallbackUrl;
-    }
+    // Fallback: load directly into iframe with no-referrer
+    console.log('[Roxy Player] Fallback to direct src:', fallbackUrl);
+    this.iframeEl.removeAttribute('srcdoc');
+    this.iframeEl.setAttribute('referrerpolicy', 'no-referrer');
+    this.iframeEl.src = fallbackUrl;
+    this.iframeEl.onload = () => {
+      setTimeout(() => this.hideLoadingCurtain(), 1200);
+    };
   },
 
   close() {
     if (!this.isActive) return;
+
+    if (this.loadingTimeout) {
+      clearTimeout(this.loadingTimeout);
+      this.loadingTimeout = null;
+    }
 
     if (this.videoEl) {
       this.videoEl.pause();
