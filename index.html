@@ -30,6 +30,10 @@
           <span class="status-dot"></span>
           <span class="status-text">🪐 Anime Offline</span>
         </div>
+        <button id="nav-profile-btn" class="nav-profile-badge navigable focus-compact" tabindex="0" title="Profilo Utente">
+          <span id="header-user-avatar" class="user-avatar-emoji">🍿</span>
+          <span id="header-user-name" class="user-name-text">Accedi</span>
+        </button>
         <button id="nav-search-btn" class="btn-search-trigger navigable focus-compact" data-section="search" tabindex="0" title="Cerca">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"></circle>
@@ -73,77 +77,90 @@
             </div>
           </div>
 
-          <div id="hero-dots" class="hero-dots"></div>
+          <!-- Carousel Indicator Dots -->
+          <div class="hero-indicator-dots" id="hero-dots"></div>
         </div>
 
-        <!-- Horizontal Content Rows Container -->
-        <div class="rows-wrapper" id="home-rows-container"></div>
+        <!-- Dynamic Content Rows Container -->
+        <div class="content-rows-container" id="home-rows-container">
+          <!-- Rows will be injected progressively here -->
+        </div>
       </section>
 
       <!-- Movies View -->
       <section id="view-movies" class="view-section">
-        <div style="padding: 110px 60px 20px 60px;">
-          <h1 style="font-size: 2.2rem; font-weight: 800;" class="text-gradient-indigo">Tutti i Film</h1>
+        <div class="section-page-header">
+          <h1 class="page-title">Catalogo Film</h1>
+          <p class="page-subtitle">I migliori film disponibili per lo streaming istantaneo in italiano.</p>
         </div>
-        <div class="rows-wrapper" id="movies-rows-container"></div>
+        <div class="content-rows-container" id="movies-rows-container"></div>
       </section>
 
       <!-- TV Shows View -->
       <section id="view-tv" class="view-section">
-        <div style="padding: 110px 60px 20px 60px;">
-          <h1 style="font-size: 2.2rem; font-weight: 800;" class="text-gradient-indigo">Tutte le Serie TV</h1>
+        <div class="section-page-header">
+          <h1 class="page-title">Serie TV</h1>
+          <p class="page-subtitle">Serie TV complete con selezione rapida di stagioni ed episodi.</p>
         </div>
-        <div class="rows-wrapper" id="tv-rows-container"></div>
+        <div class="content-rows-container" id="tv-rows-container"></div>
       </section>
 
       <!-- Watchlist View -->
       <section id="view-watchlist" class="view-section">
-        <div style="padding: 110px 60px 30px 60px;">
-          <h1 style="font-size: 2.2rem; font-weight: 800;" class="text-gradient-indigo">La Mia Lista</h1>
+        <div class="section-page-header">
+          <h1 class="page-title">La Mia Lista</h1>
+          <p class="page-subtitle">I titoli che hai salvato per guardarli più tardi.</p>
         </div>
-        <div style="padding: 0 60px;">
-          <div class="search-results-grid" id="watchlist-grid"></div>
+        <div class="watchlist-grid" id="watchlist-grid">
+          <div class="empty-state">
+            <div class="empty-icon">📺</div>
+            <h3>La tua lista è vuota</h3>
+            <p>Aggiungi film o serie TV dalla home per ritrovarli facilmente qui.</p>
+          </div>
         </div>
       </section>
 
       <!-- Search View -->
       <section id="view-search" class="view-section">
-        <div class="search-container">
+        <div class="search-header-panel">
           <div class="search-input-wrapper navigable focus-compact" tabindex="0">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary-indigo-light);">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="11" cy="11" r="8"></circle>
               <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
-            <input type="text" id="search-input" class="search-input-text" placeholder="Cerca film, serie TV, attori..." autocomplete="off">
+            <input type="text" id="search-input" class="search-input-field" placeholder="Cerca film, serie TV, attori..." autocomplete="off" />
+            <button id="search-clear-btn" class="search-clear-btn" style="display: none;">✕</button>
           </div>
-          <div class="search-results-grid" id="search-results-grid"></div>
+        </div>
+        <div class="search-results-grid" id="search-results-grid">
+          <div class="search-hint">
+            <div class="hint-icon">🔍</div>
+            <p>Inizia a digitare il titolo per cercare tra migliaia di film e serie TV.</p>
+          </div>
         </div>
       </section>
 
     </main>
 
     <!-- ====================================================================
-         Content Details Modal Dialog
+         Media Details Modal Dialog
          ==================================================================== -->
-    <div id="details-modal" class="modal-backdrop">
+    <div id="details-modal" class="modal-overlay" style="display: none;">
       <div class="modal-card">
         <button id="modal-btn-close" class="modal-close-btn navigable focus-compact" tabindex="0" title="Chiudi">✕</button>
-        <div class="modal-header-hero">
-          <img id="modal-backdrop-img" class="modal-backdrop-img" src="" alt="Backdrop">
-          <div class="modal-vignette"></div>
+        <div class="modal-hero">
+          <img id="modal-backdrop" class="modal-backdrop-img" src="" alt="Backdrop">
+          <div class="modal-hero-gradient"></div>
           <div class="modal-hero-info">
+            <h1 id="modal-title" class="modal-title">Titolo</h1>
             <div id="modal-badges" class="hero-badge-row"></div>
-            <h2 id="modal-title" class="modal-title">Titolo</h2>
-            <div class="hero-actions" style="margin-top: 6px;">
+            <div class="modal-actions">
               <button id="modal-btn-play" class="btn-primary-play navigable" tabindex="0">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                 Riproduci
               </button>
               <button id="modal-btn-watchlist" class="btn-secondary-glass navigable" tabindex="0">
                 + La Mia Lista
-              </button>
-              <button id="modal-btn-remove-continue" class="btn-secondary-glass navigable" tabindex="0" style="display: none;">
-                ✕ Rimuovi da Continua a guardare
               </button>
             </div>
           </div>
@@ -152,6 +169,108 @@
           <p id="modal-overview" class="modal-overview"></p>
           <div id="modal-meta-grid" class="modal-meta-grid"></div>
           <div id="modal-episodes-container" class="modal-episodes-section" style="display: none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         Profile Selector Modal ("Chi sta guardando?")
+         ==================================================================== -->
+    <div id="profile-modal" class="modal-overlay profile-modal-overlay" style="display: none;">
+      <div class="profile-modal-container">
+        <h1 class="profile-modal-title">Chi sta guardando?</h1>
+        <p class="profile-modal-sub">Seleziona il tuo profilo amico per continuare</p>
+        
+        <div id="profiles-grid" class="profiles-grid"></div>
+        
+        <div class="profile-modal-footer">
+          <button id="btn-open-create-profile" class="btn-profile-add navigable focus-compact" tabindex="0">
+            <span class="plus-icon">+</span> Aggiungi Profilo <span id="profile-count-badge" class="badge-profile-limit">(0/30)</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         PIN Verification Modal
+         ==================================================================== -->
+    <div id="pin-modal" class="modal-overlay profile-pin-overlay" style="display: none;">
+      <div class="pin-modal-container">
+        <div id="pin-target-avatar" class="pin-user-avatar">🍿</div>
+        <h2 id="pin-target-username" class="pin-user-title">Amico</h2>
+        <p class="pin-sub">Inserisci il PIN numerico a 4 cifre</p>
+        
+        <div class="pin-dots-row">
+          <div class="pin-dot" id="pin-dot-1"></div>
+          <div class="pin-dot" id="pin-dot-2"></div>
+          <div class="pin-dot" id="pin-dot-3"></div>
+          <div class="pin-dot" id="pin-dot-4"></div>
+        </div>
+        <div id="pin-error-msg" class="pin-error-msg" style="display: none;">PIN errato. Riprova.</div>
+
+        <div class="numpad-grid">
+          <button class="numpad-btn navigable focus-compact" data-num="1" tabindex="0">1</button>
+          <button class="numpad-btn navigable focus-compact" data-num="2" tabindex="0">2</button>
+          <button class="numpad-btn navigable focus-compact" data-num="3" tabindex="0">3</button>
+          <button class="numpad-btn navigable focus-compact" data-num="4" tabindex="0">4</button>
+          <button class="numpad-btn navigable focus-compact" data-num="5" tabindex="0">5</button>
+          <button class="numpad-btn navigable focus-compact" data-num="6" tabindex="0">6</button>
+          <button class="numpad-btn navigable focus-compact" data-num="7" tabindex="0">7</button>
+          <button class="numpad-btn navigable focus-compact" data-num="8" tabindex="0">8</button>
+          <button class="numpad-btn navigable focus-compact" data-num="9" tabindex="0">9</button>
+          <button id="btn-pin-cancel" class="numpad-btn numpad-action navigable focus-compact" tabindex="0">Annulla</button>
+          <button class="numpad-btn navigable focus-compact" data-num="0" tabindex="0">0</button>
+          <button id="btn-pin-del" class="numpad-btn numpad-action navigable focus-compact" tabindex="0">⌫</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         Create Profile Modal
+         ==================================================================== -->
+    <div id="create-profile-modal" class="modal-overlay create-profile-overlay" style="display: none;">
+      <div class="create-profile-container">
+        <h2 class="create-profile-title">Nuovo Profilo Amico</h2>
+        <p class="create-profile-sub">Scegli la tua emoji e un PIN numerico a 4 cifre</p>
+
+        <div class="create-profile-form">
+          <div class="form-group">
+            <label class="form-label">Nome Profilo</label>
+            <input type="text" id="new-profile-name" class="form-input navigable focus-compact" placeholder="es. Marco" maxlength="20" tabindex="0" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Scegli Emoji Avatar</label>
+            <div id="emoji-picker" class="emoji-picker-grid">
+              <button class="emoji-btn navigable focus-compact active" data-emoji="🍿" tabindex="0">🍿</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="🦊" tabindex="0">🦊</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="🚀" tabindex="0">🚀</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="🪐" tabindex="0">🪐</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="🎬" tabindex="0">🎬</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="👑" tabindex="0">👑</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="🍕" tabindex="0">🍕</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="🎮" tabindex="0">🎮</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="👾" tabindex="0">👾</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="🐱" tabindex="0">🐱</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="🎧" tabindex="0">🎧</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="🔥" tabindex="0">🔥</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="🏆" tabindex="0">🏆</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="💎" tabindex="0">💎</button>
+              <button class="emoji-btn navigable focus-compact" data-emoji="⚡" tabindex="0">⚡</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">PIN di Accesso (4 cifre)</label>
+            <input type="password" id="new-profile-pin" class="form-input navigable focus-compact" placeholder="••••" maxlength="4" pattern="[0-9]*" inputmode="numeric" tabindex="0" />
+          </div>
+
+          <div id="create-profile-error" class="pin-error-msg" style="display: none;"></div>
+
+          <div class="form-actions">
+            <button id="btn-cancel-create-profile" class="btn-secondary-glass navigable focus-compact" tabindex="0">Annulla</button>
+            <button id="btn-submit-create-profile" class="btn-primary-play navigable" tabindex="0">Crea Profilo</button>
+          </div>
         </div>
       </div>
     </div>
@@ -190,8 +309,15 @@
             </button>
             <h2 id="player-title" class="osd-media-title">Titolo Streaming</h2>
           </div>
-          <div class="osd-top-badge">
-            <span class="badge-quality">FULL HD 1080P</span>
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <button id="osd-btn-fullscreen" class="osd-btn-circle navigable focus-compact" tabindex="0" title="Schermo intero">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+              </svg>
+            </button>
+            <div class="osd-top-badge">
+              <span class="badge-quality">FULL HD 1080P</span>
+            </div>
           </div>
         </div>
 
@@ -245,6 +371,7 @@
   <!-- Scripts -->
   <script src="js/config.js?v=1.0.1"></script>
   <script src="js/domain-manager.js?v=1.0.1"></script>
+  <script src="js/supabase-service.js?v=1.0.1"></script>
   <script src="js/storage.js?v=1.0.1"></script>
   <script src="js/catalog-service.js?v=1.0.1"></script>
   <script src="js/animesaturn-service.js?v=1.0.1"></script>

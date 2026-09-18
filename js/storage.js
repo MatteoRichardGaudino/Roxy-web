@@ -9,10 +9,15 @@ const StorageService = {
     SETTINGS: 'roxy_settings'
   },
 
+  getUserKey(baseKey) {
+    const user = window.SupabaseService ? window.SupabaseService.getActiveUser() : null;
+    return user ? `${baseKey}_${user.id}` : baseKey;
+  },
+
   // Continue Watching
   getContinueWatching() {
     try {
-      const data = localStorage.getItem(this.KEYS.CONTINUE_WATCHING);
+      const data = localStorage.getItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING));
       return data ? JSON.parse(data) : [];
     } catch (e) {
       console.error('Storage read error:', e);
@@ -59,8 +64,13 @@ const StorageService = {
         list.unshift(record);
       }
       
-      // Keep up to 20 items
-      localStorage.setItem(this.KEYS.CONTINUE_WATCHING, JSON.stringify(list.slice(0, 20)));
+      // Keep up to 25 items in local storage
+      localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(list.slice(0, 25)));
+
+      // Sync to Supabase Cloud in background
+      if (window.SupabaseService && duration > 0) {
+        SupabaseService.syncWatchProgress(item, currentTime, duration).catch(() => {});
+      }
     } catch (e) {
       console.error('Storage save error:', e);
     }
@@ -69,7 +79,7 @@ const StorageService = {
   removeContinueWatching(id) {
     try {
       const list = this.getContinueWatching().filter(i => String(i.id) !== String(id));
-      localStorage.setItem(this.KEYS.CONTINUE_WATCHING, JSON.stringify(list));
+      localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(list));
       return true;
     } catch (e) {
       console.error('Storage remove error:', e);
@@ -80,7 +90,7 @@ const StorageService = {
   // Watchlist
   getWatchlist() {
     try {
-      const data = localStorage.getItem(this.KEYS.WATCHLIST);
+      const data = localStorage.getItem(this.getUserKey(this.KEYS.WATCHLIST));
       return data ? JSON.parse(data) : [];
     } catch (e) {
       return [];
@@ -100,6 +110,9 @@ const StorageService = {
       if (index >= 0) {
         list.splice(index, 1);
         added = false;
+        if (window.SupabaseService) {
+          SupabaseService.syncWatchlistRemove(item.id).catch(() => {});
+        }
       } else {
         list.unshift({
           id: item.id,
@@ -114,12 +127,38 @@ const StorageService = {
           release_date: item.release_date || item.first_air_date
         });
         added = true;
+        if (window.SupabaseService) {
+          SupabaseService.syncWatchlistAdd(item).catch(() => {});
+        }
       }
-      localStorage.setItem(this.KEYS.WATCHLIST, JSON.stringify(list));
+      localStorage.setItem(this.getUserKey(this.KEYS.WATCHLIST), JSON.stringify(list));
       return added;
     } catch (e) {
       console.error('Watchlist toggle error:', e);
       return false;
+    }
+  },
+
+  // Sync cloud data into local storage on login
+  async syncFromCloud() {
+    if (!window.SupabaseService) return;
+    const user = SupabaseService.getActiveUser();
+    if (!user) return;
+
+    try {
+      const [cloudContinue, cloudWatchlist] = await Promise.all([
+        SupabaseService.getCloudContinueWatching(),
+        SupabaseService.getCloudWatchlist()
+      ]);
+
+      if (Array.isArray(cloudContinue) && cloudContinue.length > 0) {
+        localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(cloudContinue));
+      }
+      if (Array.isArray(cloudWatchlist) && cloudWatchlist.length > 0) {
+        localStorage.setItem(this.getUserKey(this.KEYS.WATCHLIST), JSON.stringify(cloudWatchlist));
+      }
+    } catch (e) {
+      console.warn('[StorageService] Cloud sync error:', e);
     }
   }
 };

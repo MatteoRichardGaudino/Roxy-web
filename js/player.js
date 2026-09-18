@@ -107,6 +107,11 @@ const PlayerController = {
       btnFf.addEventListener('click', () => this.seek(10));
     }
 
+    const btnFullscreen = document.getElementById('osd-btn-fullscreen');
+    if (btnFullscreen) {
+      btnFullscreen.addEventListener('click', () => this.toggleFullscreen());
+    }
+
     // Interactive timeline seeking on click or drag & hover time preview
     if (this.progressTrack) {
       const handleSeek = (e) => {
@@ -1015,6 +1020,24 @@ const PlayerController = {
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   },
 
+  toggleFullscreen() {
+    try {
+      if (!document.fullscreenElement) {
+        if (this.container && this.container.requestFullscreen) {
+          this.container.requestFullscreen().catch(() => {});
+        } else if (document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn('Fullscreen notice:', e);
+    }
+  },
+
   handleKey(code, e) {
     // If progress bar is focused, LEFT and RIGHT scrub the video
     if (this.progressTrack && this.progressTrack.classList.contains('focused')) {
@@ -1026,6 +1049,12 @@ const PlayerController = {
         this.seek(10);
         return true;
       }
+    }
+
+    // Toggle fullscreen on 'F' key (70)
+    if (code === 70) {
+      this.toggleFullscreen();
+      return true;
     }
 
     // Return true if handled

@@ -28,6 +28,7 @@ class RoxyApp {
 
     this.bindHeaderEvents();
     this.bindModalEvents();
+    this.bindProfileEvents();
     this.bindSearchEvents();
 
     // 1. Sync updated domains from GitHub in background (non-blocking)
@@ -38,7 +39,16 @@ class RoxyApp {
     // 2. Sync VixSrc Italian catalog in background (non-blocking)
     CatalogService.init().catch(e => console.warn('[CatalogService] Background init notice:', e));
 
-    // 3. Load initial home page catalog progressively
+    // 3. Check active user profile or prompt "Chi sta guardando?"
+    const activeUser = SupabaseService.getActiveUser();
+    if (activeUser) {
+      this.updateHeaderProfileBadge(activeUser);
+      StorageService.syncFromCloud().catch(() => {});
+    } else {
+      setTimeout(() => this.showProfileSelectorModal(), 400);
+    }
+
+    // 4. Load initial home page catalog progressively
     this.loadHomeCatalog();
   }
 
@@ -875,6 +885,303 @@ class RoxyApp {
 
     if (this.lastFocusedElement) {
       window.navigatorInstance.setFocus(this.lastFocusedElement);
+    }
+  }
+
+  // =========================================================================
+  // Multi-User Profile & Authentication System
+  // =========================================================================
+  bindProfileEvents() {
+    const profileBtn = document.getElementById('nav-profile-btn');
+    if (profileBtn) {
+      profileBtn.addEventListener('click', () => this.showProfileSelectorModal());
+    }
+
+    const btnOpenCreate = document.getElementById('btn-open-create-profile');
+    if (btnOpenCreate) {
+      btnOpenCreate.addEventListener('click', () => this.showCreateProfileModal());
+    }
+
+    const btnCancelCreate = document.getElementById('btn-cancel-create-profile');
+    if (btnCancelCreate) {
+      btnCancelCreate.addEventListener('click', () => this.closeCreateProfileModal());
+    }
+
+    // Emoji Picker
+    this.selectedNewEmoji = '🍿';
+    const emojiBtns = document.querySelectorAll('.emoji-btn');
+    emojiBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        emojiBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.selectedNewEmoji = btn.getAttribute('data-emoji') || '🍿';
+      });
+    });
+
+    // Create Profile Submit
+    const btnSubmitCreate = document.getElementById('btn-submit-create-profile');
+    if (btnSubmitCreate) {
+      btnSubmitCreate.addEventListener('click', () => this.handleCreateProfileSubmit());
+    }
+
+    // PIN Numpad
+    this.currentPinInput = '';
+    this.selectedTargetProfile = null;
+
+    const numpadBtns = document.querySelectorAll('.numpad-btn[data-num]');
+    numpadBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const num = btn.getAttribute('data-num');
+        if (num !== null) this.handlePinDigit(num);
+      });
+    });
+
+    const btnPinDel = document.getElementById('btn-pin-del');
+    if (btnPinDel) {
+      btnPinDel.addEventListener('click', () => this.handlePinDelete());
+    }
+
+    const btnPinCancel = document.getElementById('btn-pin-cancel');
+    if (btnPinCancel) {
+      btnPinCancel.addEventListener('click', () => this.closePinModal());
+    }
+
+    // Physical / Remote keyboard numbers for PIN
+    window.addEventListener('keydown', (e) => {
+      const pinModal = document.getElementById('pin-modal');
+      if (pinModal && pinModal.style.display !== 'none') {
+        if (e.key >= '0' && e.key <= '9') {
+          e.preventDefault();
+          this.handlePinDigit(e.key);
+        } else if (e.key === 'Backspace') {
+          e.preventDefault();
+          this.handlePinDelete();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          this.closePinModal();
+        }
+      }
+    });
+  }
+
+  updateHeaderProfileBadge(user) {
+    const avatarEl = document.getElementById('header-user-avatar');
+    const nameEl = document.getElementById('header-user-name');
+    if (avatarEl && nameEl) {
+      if (user) {
+        avatarEl.textContent = user.avatar_emoji || '🍿';
+        nameEl.textContent = user.username || 'Amico';
+      } else {
+        avatarEl.textContent = '🍿';
+        nameEl.textContent = 'Accedi';
+      }
+    }
+  }
+
+  async showProfileSelectorModal() {
+    const modal = document.getElementById('profile-modal');
+    const grid = document.getElementById('profiles-grid');
+    const countBadge = document.getElementById('profile-count-badge');
+    if (!modal || !grid) return;
+
+    grid.innerHTML = '<div style="color: var(--text-med); font-size: 1.2rem; width: 100%;">Caricamento profili amici...</div>';
+    modal.style.display = 'flex';
+    window.navigatorInstance.setModal(true, modal);
+
+    try {
+      const profiles = await SupabaseService.getProfiles();
+      if (countBadge) {
+        countBadge.textContent = `(${profiles.length}/${SupabaseService.maxUsersLimit})`;
+      }
+
+      if (profiles.length === 0) {
+        grid.innerHTML = `
+          <div style="color: var(--text-med); font-size: 1.1rem; width: 100%; margin: 20px 0;">
+            Nessun profilo amico registrato. Creane subito uno per iniziare!
+          </div>
+        `;
+      } else {
+        grid.innerHTML = profiles.map(p => `
+          <div class="profile-card navigable focus-compact" data-id="${p.id}" tabindex="0">
+            <div class="profile-avatar-circle">${p.avatar_emoji || '🍿'}</div>
+            <div class="profile-card-name">${p.username}</div>
+          </div>
+        `).join('');
+
+        grid.querySelectorAll('.profile-card').forEach(card => {
+          const id = card.getAttribute('data-id');
+          const profile = profiles.find(p => String(p.id) === String(id));
+          if (profile) {
+            card.addEventListener('click', () => {
+              this.showPinModal(profile);
+            });
+          }
+        });
+      }
+
+      const firstNav = modal.querySelector('.navigable');
+      if (firstNav) window.navigatorInstance.setFocus(firstNav);
+    } catch (e) {
+      grid.innerHTML = `<div style="color: #ef4444; font-size: 1.1rem;">Errore caricamento profili: ${e.message}</div>`;
+    }
+  }
+
+  closeProfileSelectorModal() {
+    const modal = document.getElementById('profile-modal');
+    if (modal) {
+      modal.style.display = 'none';
+      window.navigatorInstance.setModal(false, null);
+    }
+  }
+
+  showPinModal(profile) {
+    this.selectedTargetProfile = profile;
+    this.currentPinInput = '';
+
+    const modal = document.getElementById('pin-modal');
+    const avatar = document.getElementById('pin-target-avatar');
+    const username = document.getElementById('pin-target-username');
+    const errorMsg = document.getElementById('pin-error-msg');
+
+    if (!modal) return;
+
+    if (avatar) avatar.textContent = profile.avatar_emoji || '🍿';
+    if (username) username.textContent = profile.username;
+    if (errorMsg) errorMsg.style.display = 'none';
+
+    this.updatePinDots();
+
+    modal.style.display = 'flex';
+    window.navigatorInstance.setModal(true, modal);
+
+    const firstNav = modal.querySelector('.numpad-btn[data-num="1"]') || modal.querySelector('.navigable');
+    if (firstNav) window.navigatorInstance.setFocus(firstNav);
+  }
+
+  closePinModal() {
+    const modal = document.getElementById('pin-modal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+    this.currentPinInput = '';
+    this.selectedTargetProfile = null;
+
+    // Return to profile selector if no user is active
+    if (!SupabaseService.getActiveUser()) {
+      this.showProfileSelectorModal();
+    } else {
+      window.navigatorInstance.setModal(false, null);
+    }
+  }
+
+  handlePinDigit(digit) {
+    if (this.currentPinInput.length >= 4) return;
+    this.currentPinInput += String(digit);
+    this.updatePinDots();
+
+    const errorMsg = document.getElementById('pin-error-msg');
+    if (errorMsg) errorMsg.style.display = 'none';
+
+    if (this.currentPinInput.length === 4) {
+      this.verifyPin();
+    }
+  }
+
+  handlePinDelete() {
+    if (this.currentPinInput.length > 0) {
+      this.currentPinInput = this.currentPinInput.slice(0, -1);
+      this.updatePinDots();
+    }
+  }
+
+  updatePinDots() {
+    for (let i = 1; i <= 4; i++) {
+      const dot = document.getElementById(`pin-dot-${i}`);
+      if (dot) {
+        if (i <= this.currentPinInput.length) {
+          dot.classList.add('filled');
+        } else {
+          dot.classList.remove('filled');
+        }
+      }
+    }
+  }
+
+  async verifyPin() {
+    if (!this.selectedTargetProfile) return;
+    const errorMsg = document.getElementById('pin-error-msg');
+
+    try {
+      const loggedUser = await SupabaseService.login(this.selectedTargetProfile.id, this.currentPinInput);
+      this.closePinModal();
+      this.closeProfileSelectorModal();
+      this.onUserLogin(loggedUser);
+    } catch (e) {
+      if (errorMsg) {
+        errorMsg.textContent = e.message || 'PIN errato. Riprova.';
+        errorMsg.style.display = 'block';
+      }
+      this.currentPinInput = '';
+      setTimeout(() => this.updatePinDots(), 500);
+    }
+  }
+
+  showCreateProfileModal() {
+    this.closeProfileSelectorModal();
+    const modal = document.getElementById('create-profile-modal');
+    const nameInput = document.getElementById('new-profile-name');
+    const pinInput = document.getElementById('new-profile-pin');
+    const errorMsg = document.getElementById('create-profile-error');
+
+    if (!modal) return;
+    if (nameInput) nameInput.value = '';
+    if (pinInput) pinInput.value = '';
+    if (errorMsg) errorMsg.style.display = 'none';
+
+    modal.style.display = 'flex';
+    window.navigatorInstance.setModal(true, modal);
+
+    if (nameInput) window.navigatorInstance.setFocus(nameInput);
+  }
+
+  closeCreateProfileModal() {
+    const modal = document.getElementById('create-profile-modal');
+    if (modal) modal.style.display = 'none';
+    this.showProfileSelectorModal();
+  }
+
+  async handleCreateProfileSubmit() {
+    const nameInput = document.getElementById('new-profile-name');
+    const pinInput = document.getElementById('new-profile-pin');
+    const errorMsg = document.getElementById('create-profile-error');
+
+    const username = nameInput ? nameInput.value.trim() : '';
+    const pin = pinInput ? pinInput.value.trim() : '';
+    const emoji = this.selectedNewEmoji || '🍿';
+
+    if (errorMsg) errorMsg.style.display = 'none';
+
+    try {
+      const newUser = await SupabaseService.createProfile(username, pin, emoji);
+      const modal = document.getElementById('create-profile-modal');
+      if (modal) modal.style.display = 'none';
+      this.closeProfileSelectorModal();
+      this.onUserLogin(newUser);
+    } catch (e) {
+      if (errorMsg) {
+        errorMsg.textContent = e.message || 'Errore durante la creazione del profilo.';
+        errorMsg.style.display = 'block';
+      }
+    }
+  }
+
+  async onUserLogin(user) {
+    this.updateHeaderProfileBadge(user);
+    this.showToast(`Benvenuto/a, ${user.username}! ${user.avatar_emoji || '🍿'}`);
+    await StorageService.syncFromCloud();
+    this.renderContinueWatchingRow();
+    if (this.currentSection === 'watchlist') {
+      this.renderWatchlist();
     }
   }
 

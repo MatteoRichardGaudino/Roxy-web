@@ -80,6 +80,19 @@ const CONFIG = {
     VIXSRC_BASE: 'https://vixsrc.to'
   },
 
+  // Supabase Cloud Configuration (Multi-User, Cloud Sync & Bucket Catalog)
+  SUPABASE: {
+    URL: 'https://cxcrhzgwuhrdrumcfahh.supabase.co',
+    ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN4Y3Joemd3dWhyZHJ1bWNmYWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3MzYxNTEsImV4cCI6MjEwNTMxMjE1MX0.hpi-nj9WisH9c_YdZbg3yN8cI5gzUwO-JmiZJgcdJuo',
+    STORAGE_CATALOG: {
+      MOVIE: 'https://cxcrhzgwuhrdrumcfahh.supabase.co/storage/v1/object/public/vix-catalog/movies.json',
+      TV: 'https://cxcrhzgwuhrdrumcfahh.supabase.co/storage/v1/object/public/vix-catalog/tv.json',
+      EPISODE: 'https://cxcrhzgwuhrdrumcfahh.supabase.co/storage/v1/object/public/vix-catalog/episodes.json',
+      META: 'https://cxcrhzgwuhrdrumcfahh.supabase.co/storage/v1/object/public/vix-catalog/meta.json'
+    },
+    SYNC_FUNCTION_URL: 'https://cxcrhzgwuhrdrumcfahh.supabase.co/functions/v1/vix-catalog-sync'
+  },
+
   // AnimeSaturn Addon configuration
   ANIMESATURN: {
     ADDON_URL: 'https://animesaturn.orkhon-pythagorean.ts.net'

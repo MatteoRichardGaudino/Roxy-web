@@ -125,7 +125,7 @@ const CatalogService = {
   },
 
   async fetchAndSaveFreshCatalog() {
-    console.log('[CatalogService] Fetching fresh Italian catalog from VixSrc (Daily Sync)...');
+    console.log('[CatalogService] Fetching fresh Italian catalog from Supabase Storage / Vix (Daily Sync)...');
 
     const fetchEndpoint = async (url) => {
       const controller = new AbortController();
@@ -134,41 +134,57 @@ const CatalogService = {
         const res = await fetch(url, { signal: controller.signal });
         clearTimeout(id);
         if (res.ok) return await res.json();
-        return [];
+        return null;
       } catch (e) {
         clearTimeout(id);
-        console.warn(`[CatalogService] Endpoint error/timeout on ${url}:`, e.message);
-        return [];
+        console.warn(`[CatalogService] Endpoint notice on ${url}:`, e.message);
+        return null;
       }
     };
 
-    const [moviesData, tvData, epData] = await Promise.all([
-      fetchEndpoint(CONFIG.CATALOG_LIST.MOVIE),
-      fetchEndpoint(CONFIG.CATALOG_LIST.TV),
-      fetchEndpoint(CONFIG.CATALOG_LIST.EPISODE)
+    // 1. Try Supabase Storage public bucket first (CORS-free on web browser, fast, globally distributed)
+    let [moviesData, tvData, epData] = await Promise.all([
+      fetchEndpoint(CONFIG.SUPABASE.STORAGE_CATALOG.MOVIE),
+      fetchEndpoint(CONFIG.SUPABASE.STORAGE_CATALOG.TV),
+      fetchEndpoint(CONFIG.SUPABASE.STORAGE_CATALOG.EPISODE)
     ]);
 
-    const moviesList = [];
-    if (Array.isArray(moviesData)) {
-      moviesData.forEach(m => {
-        if (m && m.tmdb_id) moviesList.push(Number(m.tmdb_id));
-      });
-    }
+    let moviesList = [];
+    let tvList = [];
+    let episodesList = [];
 
-    const tvList = [];
-    if (Array.isArray(tvData)) {
-      tvData.forEach(t => {
-        if (t && t.tmdb_id) tvList.push(Number(t.tmdb_id));
-      });
-    }
+    if (Array.isArray(moviesData) && Array.isArray(tvData) && Array.isArray(epData) && (moviesData.length > 0 || tvData.length > 0)) {
+      // Supabase bucket stores parsed integer arrays directly
+      moviesList = moviesData.map(Number).filter(Boolean);
+      tvList = tvData.map(Number).filter(Boolean);
+      episodesList = epData.filter(Boolean);
+      console.log(`[CatalogService] Loaded via Supabase Cloud Storage: ${moviesList.length} Movies, ${tvList.length} TV Shows.`);
+    } else {
+      // 2. Fallback to direct VixSrc endpoints (e.g. on webOS where CORS is unrestricted)
+      console.log('[CatalogService] Storage bucket empty/fallback, fetching direct Vix endpoints...');
+      const [vixMovies, vixTv, vixEp] = await Promise.all([
+        fetchEndpoint(CONFIG.CATALOG_LIST.MOVIE),
+        fetchEndpoint(CONFIG.CATALOG_LIST.TV),
+        fetchEndpoint(CONFIG.CATALOG_LIST.EPISODE)
+      ]);
 
-    const episodesList = [];
-    if (Array.isArray(epData)) {
-      epData.forEach(e => {
-        if (e && e.tmdb_id && e.s !== undefined && e.e !== undefined) {
-          episodesList.push(`${e.tmdb_id}_${e.s}_${e.e}`);
-        }
-      });
+      if (Array.isArray(vixMovies)) {
+        vixMovies.forEach(m => {
+          if (m && m.tmdb_id) moviesList.push(Number(m.tmdb_id));
+        });
+      }
+      if (Array.isArray(vixTv)) {
+        vixTv.forEach(t => {
+          if (t && t.tmdb_id) tvList.push(Number(t.tmdb_id));
+        });
+      }
+      if (Array.isArray(vixEp)) {
+        vixEp.forEach(e => {
+          if (e && e.tmdb_id && e.s !== undefined && e.e !== undefined) {
+            episodesList.push(`${e.tmdb_id}_${e.s}_${e.e}`);
+          }
+        });
+      }
     }
 
     this.movies = new Set(moviesList);
