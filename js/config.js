@@ -78,6 +78,11 @@ const CONFIG = {
     VIXSRC_MOVIE: 'https://vixsrc.to/movie/{id}?primaryColor=6366f1&secondaryColor=1e1e2d&lang=it&autoplay=true',
     VIXSRC_TV: 'https://vixsrc.to/tv/{id}/{season}/{episode}?primaryColor=6366f1&secondaryColor=1e1e2d&lang=it&autoplay=true',
     VIXSRC_BASE: 'https://vixsrc.to'
+  },
+
+  // AnimeSaturn Addon configuration
+  ANIMESATURN: {
+    ADDON_URL: 'https://animesaturn.orkhon-pythagorean.ts.net'
   }
 };
 

@@ -105,6 +105,30 @@
   gap: 20px;
 }
 
+.saturn-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--radius-full);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #f87171;
+  letter-spacing: 0.3px;
+  user-select: none;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.saturn-status-badge .status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+}
+
 .clock-display {
   font-size: 1.1rem;
   font-weight: 600;

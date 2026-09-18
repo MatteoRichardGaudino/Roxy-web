@@ -1,22 +1,43 @@
 /**
  * Roxy - AnimeSaturn Service
- * Scrapes anime catalog, details, episodes, and resolves direct video streams from SaturnCDN
+ * Connects to the AnimeSaturn Addon service (https://animesaturn.orkhon-pythagorean.ts.net)
+ * with graceful offline detection, health monitoring, and direct stream extraction.
  */
 const AnimeSaturnService = {
-  DOMAINS: [
-    'https://www.animesaturn.net',
-    'https://animemars.org',
-    'https://www.animesaturn.cx',
-    'https://www.animesaturn.cc',
-    'https://www.animesaturn.com'
-  ],
-  currentDomainIndex: 0,
+  ADDON_URL: 'https://animesaturn.orkhon-pythagorean.ts.net',
+  isOnline: true,
+  lastCheckTime: 0,
 
-  getBaseUrl() {
-    const domains = (window.DomainManager && window.DomainManager.saturnDomains && window.DomainManager.saturnDomains.length > 0)
-      ? window.DomainManager.saturnDomains
-      : this.DOMAINS;
-    return domains[this.currentDomainIndex] || domains[0];
+  init() {
+    this.checkHealth();
+    // Re-check health every 2 minutes
+    setInterval(() => this.checkHealth(), 120000);
+  },
+
+  updateStatusBadge(isOnline) {
+    this.isOnline = isOnline;
+    const badge = document.getElementById('saturn-status-badge');
+    if (badge) {
+      badge.style.display = isOnline ? 'none' : 'inline-flex';
+    }
+  },
+
+  async checkHealth() {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const res = await fetch(`${this.ADDON_URL}/manifest.json`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      const ok = res.ok;
+      this.updateStatusBadge(ok);
+      return ok;
+    } catch (err) {
+      console.warn('[AnimeSaturn] Health check notice - addon offline:', err.message);
+      this.updateStatusBadge(false);
+      return false;
+    }
   },
 
   isDubAnime(title, slug) {
@@ -33,202 +54,192 @@ const AnimeSaturnService = {
     return title.replace(/\s*\((ITA|SUB|SUB ITA|ITA SUB)\)\s*/gi, '').replace(/\s*(ITA|SUB|DUB)\s*$/gi, '').trim();
   },
 
-  decodeSaturnResponse(encodedData, token) {
-    try {
-      const binaryString = atob(encodedData);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i) ^ token.charCodeAt(i % token.length);
-      }
-      return new TextDecoder('utf-8').decode(bytes);
-    } catch (e) {
-      console.error('[AnimeSaturn] XOR decode error:', e);
-      return '';
-    }
-  },
-
-  async fetchWithFallback(path, options = {}) {
-    const domains = (window.DomainManager && window.DomainManager.saturnDomains && window.DomainManager.saturnDomains.length > 0)
-      ? window.DomainManager.saturnDomains
-      : this.DOMAINS;
-
-    for (let i = 0; i < domains.length; i++) {
-      const idx = (this.currentDomainIndex + i) % domains.length;
-      const domain = domains[idx];
-      const url = domain + (path.startsWith('/') ? path : '/' + path);
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs || 3500);
-
-      try {
-        const res = await fetch(url, {
-          signal: controller.signal,
-          headers: {
-            'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
-            ...(options.headers || {})
-          },
-          ...options
-        });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          this.currentDomainIndex = idx;
-          const html = await res.text();
-          return { html, baseUrl: domain, status: res.status };
-        }
-      } catch (err) {
-        clearTimeout(timeoutId);
-        console.warn(`[AnimeSaturn] Error/timeout on ${domain}:`, err.message);
-      }
-    }
-    throw new Error('All AnimeSaturn domains unreachable.');
-  },
-
   async getLatestAnime() {
     try {
-      const { html, baseUrl } = await this.fetchWithFallback('/filter?sort=update');
-      return this.parseAnimeCards(html, baseUrl);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      // Fetch both DUB and SUB latest catalogs concurrently
+      const [dubRes, subRes] = await Promise.allSettled([
+        fetch(`${this.ADDON_URL}/catalog/series/animesaturn-latest.json`, { signal: controller.signal }),
+        fetch(`${this.ADDON_URL}/catalog/series/animesaturn-latest-sub.json`, { signal: controller.signal })
+      ]);
+      clearTimeout(timeoutId);
+
+      const items = [];
+      const seenSlugs = new Set();
+
+      // Process DUB catalog first (Priority 1)
+      if (dubRes.status === 'fulfilled' && dubRes.value.ok) {
+        const dubData = await dubRes.value.json();
+        const metas = dubData.metas || [];
+        metas.forEach(meta => {
+          const rawSlug = (meta.id || '').replace(/^as:/, '');
+          if (!rawSlug || seenSlugs.has(rawSlug)) return;
+          seenSlugs.add(rawSlug);
+
+          items.push({
+            id: `saturn_${rawSlug}`,
+            slug: rawSlug,
+            source: 'animesaturn',
+            title: meta.name || rawSlug,
+            name: meta.name || rawSlug,
+            media_type: 'anime',
+            poster_path: meta.poster || '',
+            backdrop_path: meta.background || meta.poster || '',
+            vote_average: meta.imdbRating ? parseFloat(meta.imdbRating) : 8.0,
+            release_date: meta.releaseInfo || '',
+            anime_type: 'Anime',
+            isDub: true,
+            overview: meta.description || `Anime doppiato in Italiano.`
+          });
+        });
+        this.updateStatusBadge(true);
+      }
+
+      // Process SUB catalog
+      if (subRes.status === 'fulfilled' && subRes.value.ok) {
+        const subData = await subRes.value.json();
+        const metas = subData.metas || [];
+        metas.forEach(meta => {
+          const rawSlug = (meta.id || '').replace(/^as:/, '');
+          if (!rawSlug || seenSlugs.has(rawSlug)) return;
+          seenSlugs.add(rawSlug);
+
+          const isDub = this.isDubAnime(meta.name, rawSlug);
+          items.push({
+            id: `saturn_${rawSlug}`,
+            slug: rawSlug,
+            source: 'animesaturn',
+            title: meta.name || rawSlug,
+            name: meta.name || rawSlug,
+            media_type: 'anime',
+            poster_path: meta.poster || '',
+            backdrop_path: meta.background || meta.poster || '',
+            vote_average: meta.imdbRating ? parseFloat(meta.imdbRating) : 7.6,
+            release_date: meta.releaseInfo || '',
+            anime_type: 'Anime',
+            isDub: isDub,
+            overview: meta.description || `Anime sottotitolato in Italiano.`
+          });
+        });
+        this.updateStatusBadge(true);
+      }
+
+      if (items.length > 0) {
+        return items;
+      }
     } catch (err) {
-      console.error('[AnimeSaturn] getLatestAnime failed:', err);
-      return [];
+      console.warn('[AnimeSaturn] getLatestAnime notice - addon offline:', err.message);
+      this.updateStatusBadge(false);
     }
+    return [];
   },
 
   async search(query) {
     if (!query || !query.trim()) return [];
     try {
-      const path = `/filter?key=${encodeURIComponent(query.trim())}`;
-      const { html, baseUrl } = await this.fetchWithFallback(path);
-      return this.parseAnimeCards(html, baseUrl);
+      const q = encodeURIComponent(query.trim());
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+      const [dubRes, subRes] = await Promise.allSettled([
+        fetch(`${this.ADDON_URL}/catalog/series/animesaturn-latest/search=${q}.json`, { signal: controller.signal }),
+        fetch(`${this.ADDON_URL}/catalog/series/animesaturn-latest-sub/search=${q}.json`, { signal: controller.signal })
+      ]);
+      clearTimeout(timeoutId);
+
+      const items = [];
+      const seenSlugs = new Set();
+
+      const parseMetas = (metas, defaultDub) => {
+        (metas || []).forEach(meta => {
+          const rawSlug = (meta.id || '').replace(/^as:/, '');
+          if (!rawSlug || seenSlugs.has(rawSlug)) return;
+          seenSlugs.add(rawSlug);
+
+          const isDub = defaultDub || this.isDubAnime(meta.name, rawSlug);
+          items.push({
+            id: `saturn_${rawSlug}`,
+            slug: rawSlug,
+            source: 'animesaturn',
+            title: meta.name || rawSlug,
+            name: meta.name || rawSlug,
+            media_type: 'anime',
+            poster_path: meta.poster || '',
+            backdrop_path: meta.background || meta.poster || '',
+            vote_average: meta.imdbRating ? parseFloat(meta.imdbRating) : 7.8,
+            release_date: meta.releaseInfo || '',
+            anime_type: 'Anime',
+            isDub: isDub,
+            overview: meta.description || `Anime ${isDub ? 'Doppiato in Italiano' : 'Sottotitolato in Italiano'}.`
+          });
+        });
+      };
+
+      if (dubRes.status === 'fulfilled' && dubRes.value.ok) {
+        const d = await dubRes.value.json();
+        parseMetas(d.metas, true);
+        this.updateStatusBadge(true);
+      }
+      if (subRes.status === 'fulfilled' && subRes.value.ok) {
+        const d = await subRes.value.json();
+        parseMetas(d.metas, false);
+        this.updateStatusBadge(true);
+      }
+
+      // Sort with DUB first, then SUB
+      return items.sort((a, b) => {
+        if (a.isDub && !b.isDub) return -1;
+        if (!a.isDub && b.isDub) return 1;
+        return 0;
+      });
     } catch (err) {
-      console.error('[AnimeSaturn] search failed:', err);
+      console.warn('[AnimeSaturn] search notice - addon offline:', err.message);
+      this.updateStatusBadge(false);
       return [];
     }
   },
 
-  parseAnimeCards(html, baseUrl) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const cards = doc.querySelectorAll('a.ac.group');
-    const items = [];
-
-    cards.forEach(card => {
-      const href = card.getAttribute('href') || '';
-      if (!href || !href.includes('/anime/')) return;
-
-      const slug = href.replace(/\/$/, '').split('/').pop();
-      const titleTag = card.querySelector('h3.ac__title');
-      const title = titleTag ? titleTag.textContent.trim() : slug;
-
-      const posterTag = card.querySelector('img');
-      let poster = '';
-      if (posterTag) {
-        poster = posterTag.getAttribute('src') || posterTag.getAttribute('data-src') || '';
-        if (poster && poster.startsWith('/')) poster = baseUrl + poster;
-      }
-
-      const typeTag = card.querySelector('span.ac__type-badge');
-      const typeStr = typeTag ? typeTag.textContent.trim() : 'TV';
-
-      const scoreTag = card.querySelector('span.ac__score');
-      const scoreText = scoreTag ? scoreTag.textContent.trim() : '';
-      const vote_average = parseFloat(scoreText.replace(/[^0-9.]/g, '')) || 7.5;
-
-      const subTag = card.querySelector('p.ac__sub');
-      const subInfo = subTag ? subTag.textContent.trim() : '';
-
-      const isDub = this.isDubAnime(title, slug);
-
-      items.push({
-        id: `saturn_${slug}`,
-        slug: slug,
-        source: 'animesaturn',
-        title: title,
-        name: title,
-        media_type: 'anime',
-        poster_path: poster,
-        backdrop_path: poster,
-        vote_average: vote_average,
-        release_date: subInfo.split('·')[0]?.trim() || '',
-        sub_info: subInfo,
-        anime_type: typeStr,
-        isDub: isDub,
-        overview: `Anime ${typeStr} • ${subInfo} • ${isDub ? 'Doppiato in Italiano' : 'Sottotitolato in Italiano'}`
-      });
-    });
-
-    // Sort prioritizing DUB (Italian audio) first, then SUB
-    return items.sort((a, b) => {
-      if (a.isDub && !b.isDub) return -1;
-      if (!a.isDub && b.isDub) return 1;
-      return 0;
-    });
-  },
-
   async getAnimeDetails(slug) {
     try {
-      const { html, baseUrl } = await this.fetchWithFallback(`/anime/${slug}`);
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
+      const cleanSlug = slug.replace(/^saturn_/, '').replace(/^as:/, '');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
 
-      const titleEl = doc.querySelector('h1');
-      const title = titleEl ? titleEl.textContent.trim() : slug;
-
-      const posterEl = doc.querySelector('img[src*="locandine"]') || doc.querySelector('.anime-poster img') || doc.querySelector('img');
-      let poster = posterEl ? (posterEl.getAttribute('src') || posterEl.getAttribute('data-src') || '') : '';
-      if (poster && poster.startsWith('/')) poster = baseUrl + poster;
-
-      const bgEl = doc.querySelector('img.anime-hero__bg') || doc.querySelector('img[src*="background"]');
-      let backdrop = bgEl ? (bgEl.getAttribute('src') || bgEl.getAttribute('data-src') || '') : poster;
-      if (backdrop && backdrop.startsWith('/')) backdrop = baseUrl + backdrop;
-
-      const descEl = doc.querySelector('.story-clip') || doc.querySelector('.ag-story div') || doc.querySelector('#synopsis');
-      const overview = descEl ? descEl.textContent.trim() : 'Nessuna sinossi disponibile.';
-
-      const genreEls = doc.querySelectorAll('a[href*="/genres/"], a[href*="/genere/"]');
-      const genres = Array.from(genreEls).map(g => ({ name: g.textContent.trim() })).filter(g => g.name);
-
-      // Extract episodes
-      const epTiles = doc.querySelectorAll('a.ep-tile, a[href*="/ep-"]');
-      const episodes = [];
-      const seenNums = new Set();
-
-      epTiles.forEach(ep => {
-        const href = ep.getAttribute('href') || '';
-        const epTitle = ep.getAttribute('title') || ep.textContent.trim();
-        const numMatch = href.match(/ep-(\d+)/i) || ep.textContent.match(/(\d+)/);
-        const epNum = numMatch ? parseInt(numMatch[1]) : (episodes.length + 1);
-
-        if (!seenNums.has(epNum)) {
-          seenNums.add(epNum);
-          const watchHref = href.replace('/episode/', '/anime/');
-          episodes.push({
-            episode_number: epNum,
-            name: epTitle || `Episodio ${epNum}`,
-            href: href,
-            watchHref: watchHref.startsWith('http') ? watchHref : (baseUrl + watchHref),
-            still_path: backdrop || poster,
-            overview: `Episodio ${epNum} di ${title}`
-          });
-        }
+      const res = await fetch(`${this.ADDON_URL}/meta/series/as:${cleanSlug}.json`, {
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const meta = data.meta || {};
+
+      const isDub = this.isDubAnime(meta.name, cleanSlug);
+
+      const episodes = (meta.videos || []).map(v => ({
+        episode_number: v.episode || v.number || 1,
+        name: v.title || `Episodio ${v.episode || 1}`,
+        still_path: v.thumbnail || meta.background || meta.poster || '',
+        overview: v.overview || `Episodio ${v.episode || 1} di ${meta.name}`
+      }));
 
       episodes.sort((a, b) => a.episode_number - b.episode_number);
 
-      const isDub = this.isDubAnime(title, slug);
+      this.updateStatusBadge(true);
 
       return {
-        id: `saturn_${slug}`,
-        slug: slug,
+        id: `saturn_${cleanSlug}`,
+        slug: cleanSlug,
         source: 'animesaturn',
-        title: title,
-        name: title,
+        title: meta.name || cleanSlug,
+        name: meta.name || cleanSlug,
         media_type: 'anime',
-        poster_path: poster,
-        backdrop_path: backdrop,
-        overview: overview,
-        genres: genres.length > 0 ? genres : [{ name: 'Anime' }, { name: isDub ? 'Dub ITA' : 'Sub ITA' }],
+        poster_path: meta.poster || '',
+        backdrop_path: meta.background || meta.poster || '',
+        overview: meta.description || 'Nessuna sinossi disponibile.',
+        genres: (meta.genres || []).map(g => ({ name: g })),
         status: 'Disponibile',
         original_language: isDub ? 'it' : 'ja',
         isDub: isDub,
@@ -240,53 +251,44 @@ const AnimeSaturnService = {
         }]
       };
     } catch (err) {
-      console.error('[AnimeSaturn] getAnimeDetails error:', err);
+      console.error('[AnimeSaturn] getAnimeDetails failed:', err);
+      this.updateStatusBadge(false);
       return null;
     }
   },
 
   async resolveStream(slug, epNum = 1) {
     try {
-      const watchPath = `/anime/${slug}/ep-${epNum}`;
-      console.log(`[AnimeSaturn] Resolving stream from ${watchPath}...`);
+      const cleanSlug = slug.replace(/^saturn_/, '').replace(/^as:/, '');
+      const streamEndpoint = `${this.ADDON_URL}/stream/series/as:${cleanSlug}:${epNum}.json`;
+      console.log(`[AnimeSaturn] Resolving stream from addon: ${streamEndpoint}`);
 
-      const { html } = await this.fetchWithFallback(watchPath);
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 7000);
 
-      const iframe = doc.querySelector('iframe#watch-iframe') || doc.querySelector('iframe[src*="saturncdn"]');
-      if (!iframe) {
-        throw new Error('Watch iframe not found in page');
-      }
+      const res = await fetch(streamEndpoint, { signal: controller.signal });
+      clearTimeout(timeoutId);
 
-      let rawIframeSrc = iframe.getAttribute('src') || '';
-      if (rawIframeSrc.startsWith('//')) rawIframeSrc = 'https:' + rawIframeSrc;
-      
-      // Unescape HTML entities (e.g. &amp; -> &)
-      const cleanIframeSrc = rawIframeSrc.replace(/&amp;/g, '&');
-      console.log(`[AnimeSaturn] Found embed iframe URL: ${cleanIframeSrc}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
 
-      let embedHtml = '';
-      try {
-        const embedRes = await fetch(cleanIframeSrc, {
-          headers: {
-            'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8'
-          }
-        });
-        if (embedRes.ok) {
-          embedHtml = await embedRes.text();
+      if (data && Array.isArray(data.streams) && data.streams.length > 0) {
+        // Find the direct stream first
+        const directStream = data.streams.find(s => s.title === 'Diretto' || s.name === 'AnimeSaturn' || !s.url.includes('proxy')) || data.streams[0];
+        if (directStream && directStream.url) {
+          console.log(`[AnimeSaturn] Successfully resolved direct stream: ${directStream.url}`);
+          this.updateStatusBadge(true);
+          return {
+            type: 'direct',
+            streamUrl: directStream.url
+          };
         }
-      } catch (e) {
-        console.warn('[AnimeSaturn] Direct embed fetch notice:', e.message);
       }
 
-      return {
-        type: 'saturn_embed',
-        embedUrl: cleanIframeSrc,
-        embedHtml: embedHtml
-      };
+      throw new Error('No stream URLs found in response');
     } catch (err) {
-      console.error('[AnimeSaturn] resolveStream failed:', err);
+      console.error('[AnimeSaturn] resolveStream failed:', err.message);
+      this.updateStatusBadge(false);
       return null;
     }
   }

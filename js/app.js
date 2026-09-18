@@ -22,6 +22,9 @@ class RoxyApp {
     window.navigatorInstance = new SpatialNavigator();
     WebOSBridge.init();
     PlayerController.init();
+    if (window.AnimeSaturnService) {
+      AnimeSaturnService.init();
+    }
 
     this.bindHeaderEvents();
     this.bindModalEvents();

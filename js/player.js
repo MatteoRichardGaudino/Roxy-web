@@ -257,25 +257,27 @@ const PlayerController = {
       console.log(`[Roxy Player] Resolving AnimeSaturn stream for: ${slug} ep ${epNum}`);
       const res = await AnimeSaturnService.resolveStream(slug, epNum);
 
-      if (!res || !res.embedUrl) {
+      if (res && res.type === 'direct' && res.streamUrl) {
+        console.log(`[Roxy Player] Playing direct Saturn stream: ${res.streamUrl}`);
+        if (this.osd) this.osd.classList.remove('iframe-mode');
+        this.iframeEl.style.display = 'none';
+        this.videoEl.style.display = 'block';
+        this.videoEl.src = res.streamUrl;
+
+        if (resumeTime && resumeTime > 0) {
+          this.videoEl.currentTime = resumeTime;
+        }
+
+        this.videoEl.play().catch(e => console.warn('Saturn direct autoplay notice:', e));
+        if (osdBottom) osdBottom.style.display = 'flex';
+      } else {
         throw new Error('No stream available from AnimeSaturn');
       }
-
-      console.log(`[Roxy Player] Loading direct clean Saturn embed for: ${res.embedUrl}`);
-      this.videoEl.style.display = 'none';
-      this.iframeEl.style.display = 'block';
-
-      await this.loadDirectCleanSaturnEmbed(item, res.embedUrl, res.embedHtml, resumeTime || 0);
-
-      if (this.osd) this.osd.classList.add('iframe-mode');
-      if (osdBottom) osdBottom.style.display = 'none';
-      setTimeout(() => this.hideLoadingCurtain(), 1200);
-
     } catch (err) {
       console.error('[Roxy Player] AnimeSaturn playback failed:', err);
       this.hideLoadingCurtain();
       if (window.App) {
-        window.App.showToast('Impossibile caricare il flusso video per questo episodio.');
+        window.App.showToast('Server Anime non raggiungibile al momento.');
       }
       setTimeout(() => this.close(), 2500);
       return;
