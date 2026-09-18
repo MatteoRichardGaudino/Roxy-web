@@ -48,25 +48,37 @@ class AnimeSaturnService {
   }
 
   async fetchWithFallback(path, options = {}) {
-    for (let i = 0; i < this.DOMAINS.length; i++) {
-      const idx = (this.currentDomainIndex + i) % this.DOMAINS.length;
-      const domain = this.DOMAINS[idx];
+    const domains = (window.DomainManager && window.DomainManager.saturnDomains && window.DomainManager.saturnDomains.length > 0)
+      ? window.DomainManager.saturnDomains
+      : this.DOMAINS;
+
+    for (let i = 0; i < domains.length; i++) {
+      const idx = (this.currentDomainIndex + i) % domains.length;
+      const domain = domains[idx];
       const url = domain + (path.startsWith('/') ? path : '/' + path);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs || 3500);
+
       try {
         const res = await fetch(url, {
+          signal: controller.signal,
           headers: {
             'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
             ...(options.headers || {})
           },
           ...options
         });
+        clearTimeout(timeoutId);
+
         if (res.ok) {
           this.currentDomainIndex = idx;
           const html = await res.text();
           return { html, baseUrl: domain, status: res.status };
         }
       } catch (err) {
-        console.warn(`[AnimeSaturn] Error fetching from ${domain}:`, err.message);
+        clearTimeout(timeoutId);
+        console.warn(`[AnimeSaturn] Error/timeout on ${domain}:`, err.message);
       }
     }
     throw new Error('All AnimeSaturn domains unreachable.');

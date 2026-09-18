@@ -10,6 +10,7 @@ class RoxyApp {
     this.heroTimer = null;
     this.lastFocusedElement = null;
     this.searchDebounceTimer = null;
+    this.searchRequestId = 0;
 
     this.init();
   }
@@ -26,21 +27,16 @@ class RoxyApp {
     this.bindModalEvents();
     this.bindSearchEvents();
 
-    // 1. Sync VixSrc Italian catalog list first
-    await CatalogService.init();
+    // 1. Sync updated domains from GitHub in background (non-blocking)
+    if (window.DomainManager) {
+      DomainManager.syncFromGithub().catch(e => console.warn('[DomainManager] Background sync notice:', e));
+    }
 
-    // 2. Load initial home page catalog (only available items)
-    await this.loadHomeCatalog();
+    // 2. Sync VixSrc Italian catalog in background (non-blocking)
+    CatalogService.init().catch(e => console.warn('[CatalogService] Background init notice:', e));
 
-    // Set initial focus to the Hero Play Button
-    setTimeout(() => {
-      const initialFocus = document.querySelector('.hero-actions .btn-primary-play') || 
-                           document.querySelector('.hero-actions .btn-unavailable') || 
-                           document.querySelector('.nav-item');
-      if (initialFocus) {
-        window.navigatorInstance.setFocus(initialFocus);
-      }
-    }, 400);
+    // 3. Load initial home page catalog progressively
+    this.loadHomeCatalog();
   }
 
   // =========================================================================
@@ -133,64 +129,109 @@ class RoxyApp {
   }
 
   // =========================================================================
-  // Home Page Catalog Loading (Intersected with VixSrc Italian Catalog)
+  // Progressive Home Page Catalog Loading (Zero-wait Streaming Rows)
   // =========================================================================
-  async loadHomeCatalog() {
+  loadHomeCatalog() {
     try {
-      // 1. Fetch data concurrently from TMDB and AnimeSaturn
-      const [trending, popularMovies, allTimePopular, popularTV, topRated, actionMovies, sciFiMovies, animation, saturnAnime] = await Promise.all([
-        TMDBService.getTrending('day'),
-        TMDBService.getPopularMovies(),
-        TMDBService.getAllTimePopularMovies(),
-        TMDBService.getPopularTV(),
-        TMDBService.getTopRatedMovies(),
-        TMDBService.getByGenre(CONFIG.GENRES.ACTION, 'movie', Math.floor(Math.random() * 2) + 1),
-        TMDBService.getByGenre(CONFIG.GENRES.SCI_FI, 'movie', Math.floor(Math.random() * 2) + 1),
-        TMDBService.getByGenre(CONFIG.GENRES.ANIMATION, 'movie'),
-        AnimeSaturnService.getLatestAnime().catch(() => [])
-      ]);
+      const container = document.getElementById('home-rows-container');
+      if (!container) return;
+      container.innerHTML = '';
 
-      // 2. Filter every collection with CatalogService to display only available items on homepage
-      const availTrending = CatalogService.filterAvailable(trending);
-      const availPopularMovies = CatalogService.filterAvailable(popularMovies);
-      const availAllTime = CatalogService.filterAvailable(allTimePopular);
-      const availPopularTV = CatalogService.filterAvailable(popularTV);
-      const availTopRated = CatalogService.filterAvailable(topRated);
-      const availAction = CatalogService.filterAvailable(actionMovies);
-      const availSciFi = CatalogService.filterAvailable(sciFiMovies);
-      const availAnimation = CatalogService.filterAvailable(animation);
-
-      // 3. Randomized Hero Billboard: mix of available popular released movies and trending shows
-      const heroPool = [...availPopularMovies.slice(0, 6), ...availAllTime.slice(0, 6), ...availTrending.slice(0, 6)];
-      this.heroItems = TMDBService.shuffle(heroPool.filter(i => i.backdrop_path)).slice(0, 8);
-      this.renderHeroBillboard();
-
-      // 4. Render Continue Watching Row
+      // 1. Render Continue Watching immediately from local storage
       this.renderContinueWatchingRow();
 
-      // 5. Create a dynamic randomized mix for "Scelti per Te"
-      const mixedPicks = TMDBService.shuffle([...availPopularMovies.slice(0, 10), ...availAllTime.slice(0, 10)]);
+      // Helper to render each row into its designated slot as soon as its request completes
+      const renderProgressiveRow = (slotId, title, itemsPromise, options = {}) => {
+        let slot = document.getElementById(slotId);
+        if (!slot) {
+          slot = document.createElement('div');
+          slot.id = slotId;
+          container.appendChild(slot);
+        }
 
-      // 6. Render Horizontal Rows with available contents
-      this.renderRow('I Più Popolari in Streaming Oggi', availTrending.slice(0, 18), 'home-rows-container');
-      
-      // Dedicated AnimeSaturn Row with DUB ITA prioritized
-      if (saturnAnime && saturnAnime.length > 0) {
-        this.renderRow('🪐 Anime', saturnAnime, 'home-rows-container');
-      }
+        itemsPromise.then(rawItems => {
+          const items = options.skipFilter ? rawItems : CatalogService.filterAvailable(rawItems);
+          if (!items || items.length === 0) {
+            slot.remove();
+            return;
+          }
 
-      this.renderRow('Grandi Successi di Sempre', availAllTime, 'home-rows-container');
-      this.renderRow('Serie TV del Momento', availPopularTV, 'home-rows-container');
-      this.renderRow('Scelti per Te (Mix Consigliati)', mixedPicks, 'home-rows-container');
-      this.renderRow('Film da Non Perdere', availPopularMovies, 'home-rows-container');
-      this.renderRow('I Più Votati dalla Critica', availTopRated, 'home-rows-container');
-      this.renderRow('Azione & Avventura Esplosiva', availAction, 'home-rows-container');
-      this.renderRow('Fantascienza & Mondi Futuri', availSciFi, 'home-rows-container');
-      this.renderRow('Animazione per Tutti', availAnimation, 'home-rows-container');
+          // Populate Hero billboard with the first available batch of visual items
+          if ((!this.heroItems || this.heroItems.length === 0) && items.some(i => i.backdrop_path)) {
+            this.heroItems = items.filter(i => i.backdrop_path).slice(0, 8);
+            this.renderHeroBillboard();
+            setTimeout(() => {
+              const initialFocus = document.querySelector('.hero-actions .btn-primary-play') || 
+                                   document.querySelector('.hero-actions .btn-unavailable') || 
+                                   document.querySelector('.nav-item');
+              if (initialFocus) {
+                window.navigatorInstance.setFocus(initialFocus);
+              }
+            }, 300);
+          }
+
+          this.renderRowContent(slot, title, items);
+        }).catch(err => {
+          console.warn(`[Roxy] Row ${title} load notice:`, err.message);
+          if (slot) slot.remove();
+        });
+      };
+
+      // Create and dispatch requests progressively in priority order:
+      renderProgressiveRow('slot-trending', 'I Più Popolari in Streaming Oggi', TMDBService.getTrending('day'));
+      renderProgressiveRow('slot-anime', '🪐 Anime', AnimeSaturnService.getLatestAnime(), { skipFilter: true });
+      renderProgressiveRow('slot-alltime', 'Grandi Successi di Sempre', TMDBService.getAllTimePopularMovies());
+      renderProgressiveRow('slot-tv', 'Serie TV del Momento', TMDBService.getPopularTV());
+      renderProgressiveRow('slot-movies', 'Film da Non Perdere', TMDBService.getPopularMovies());
+      renderProgressiveRow('slot-toprated', 'I Più Votati dalla Critica', TMDBService.getTopRatedMovies());
+      renderProgressiveRow('slot-action', 'Azione & Avventura Esplosiva', TMDBService.getByGenre(CONFIG.GENRES.ACTION, 'movie', 1));
+      renderProgressiveRow('slot-scifi', 'Fantascienza & Mondi Futuri', TMDBService.getByGenre(CONFIG.GENRES.SCI_FI, 'movie', 1));
+      renderProgressiveRow('slot-anim', 'Animazione per Tutti', TMDBService.getByGenre(CONFIG.GENRES.ANIMATION, 'movie'));
 
     } catch (e) {
-      console.error('Failed to load home catalog:', e);
+      console.error('Failed to start progressive home catalog:', e);
     }
+  }
+
+  renderRowContent(slotElement, title, items) {
+    if (!items || items.length === 0 || !slotElement) return;
+
+    slotElement.className = 'content-row';
+    const rowId = `row-${Math.random().toString(36).substr(2, 9)}`;
+
+    slotElement.innerHTML = `
+      <div class="row-header">
+        <h2 class="row-title">${title}</h2>
+      </div>
+      <div class="row-carousel" id="${rowId}">
+        ${items.filter(i => i.poster_path).map(item => this.getMediaCardHtml(item)).join('')}
+      </div>
+    `;
+
+    // Attach click listeners: play button starts playback, card body opens details modal
+    slotElement.querySelectorAll('.media-card').forEach(card => {
+      const rawId = card.getAttribute('data-id');
+      const item = items.find(i => String(i.id) === String(rawId));
+      if (item) {
+        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+        const playBtn = card.querySelector('.card-play-indicator');
+        if (playBtn) {
+          playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!isSaturn && !CatalogService.isItemAvailable(item)) {
+              this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
+              return;
+            }
+            this.lastFocusedElement = card;
+            PlayerController.play(item);
+          });
+        }
+        card.addEventListener('click', () => {
+          this.lastFocusedElement = card;
+          this.openDetailsModal(item);
+        });
+      }
+    });
   }
 
   // =========================================================================
@@ -871,59 +912,89 @@ class RoxyApp {
     const grid = document.getElementById('search-results-grid');
     if (!grid) return;
 
-    if (!query || query.trim().length === 0) {
+    const trimmed = (query || '').trim();
+    if (!trimmed) {
       grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.2rem; grid-column: 1/-1;">Inizia a digitare per cercare tra film, serie TV e anime...</div>`;
       return;
     }
 
-    grid.innerHTML = `<div style="color: var(--primary-indigo-light); font-size: 1.2rem; grid-column: 1/-1;">Ricerca in corso...</div>`;
+    const currentSearchId = ++this.searchRequestId;
+    grid.innerHTML = `<div style="color: var(--primary-indigo-light); font-size: 1.2rem; grid-column: 1/-1;">Ricerca in corso per "${trimmed}"...</div>`;
 
-    const [tmdbResults, saturnResults] = await Promise.all([
-      TMDBService.search(query).catch(() => []),
-      AnimeSaturnService.search(query).catch(() => [])
-    ]);
+    const currentResults = [];
 
-    // Split Saturn results by DUB vs SUB (DUB ITA prioritized first)
-    const saturnDub = saturnResults.filter(i => i.isDub);
-    const saturnSub = saturnResults.filter(i => !i.isDub);
+    const updateAndRender = (newItems) => {
+      if (this.searchRequestId !== currentSearchId) return;
 
-    // Merge results: DUB Anime first, then TMDB results, then SUB anime
-    const mergedResults = [
-      ...saturnDub,
-      ...tmdbResults,
-      ...saturnSub
-    ];
+      // Merge newItems into currentResults, deduplicating by item id
+      const seen = new Set(currentResults.map(i => String(i.id)));
+      newItems.forEach(item => {
+        if (!seen.has(String(item.id))) {
+          seen.add(String(item.id));
+          currentResults.push(item);
+        }
+      });
 
-    if (mergedResults.length === 0) {
-      grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.2rem; grid-column: 1/-1;">Nessun risultato trovato per "${query}".</div>`;
-      return;
-    }
+      // Sort: DUB Anime first, then TMDB/available contents, then SUB anime
+      currentResults.sort((a, b) => {
+        const aIsSaturn = (a.source === 'animesaturn' || String(a.id).startsWith('saturn_'));
+        const bIsSaturn = (b.source === 'animesaturn' || String(b.id).startsWith('saturn_'));
 
-    grid.innerHTML = mergedResults.map(item => this.getMediaCardHtml(item)).join('');
+        if (aIsSaturn && a.isDub && (!bIsSaturn || !b.isDub)) return -1;
+        if (bIsSaturn && b.isDub && (!aIsSaturn || !a.isDub)) return 1;
 
-    grid.querySelectorAll('.media-card').forEach(card => {
-      const rawId = card.getAttribute('data-id');
-      const item = mergedResults.find(i => String(i.id) === String(rawId));
-      if (item) {
-        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
-        const playBtn = card.querySelector('.card-play-indicator');
-        if (playBtn) {
-          playBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!isSaturn && !CatalogService.isItemAvailable(item)) {
-              this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
-              return;
-            }
+        if (aIsSaturn && !a.isDub && !bIsSaturn) return 1;
+        if (bIsSaturn && !b.isDub && !aIsSaturn) return -1;
+
+        return 0;
+      });
+
+      if (currentResults.length === 0) {
+        grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.2rem; grid-column: 1/-1;">Nessun risultato trovato per "${trimmed}".</div>`;
+        return;
+      }
+
+      grid.innerHTML = currentResults.map(item => this.getMediaCardHtml(item)).join('');
+
+      // Reattach click listeners
+      grid.querySelectorAll('.media-card').forEach(card => {
+        const rawId = card.getAttribute('data-id');
+        const item = currentResults.find(i => String(i.id) === String(rawId));
+        if (item) {
+          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+          const playBtn = card.querySelector('.card-play-indicator');
+          if (playBtn) {
+            playBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              if (!isSaturn && !CatalogService.isItemAvailable(item)) {
+                this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
+                return;
+              }
+              this.lastFocusedElement = card;
+              PlayerController.play(item);
+            });
+          }
+          card.addEventListener('click', () => {
             this.lastFocusedElement = card;
-            PlayerController.play(item);
+            this.openDetailsModal(item);
           });
         }
-        card.addEventListener('click', () => {
-          this.lastFocusedElement = card;
-          this.openDetailsModal(item);
-        });
+      });
+    };
+
+    // 1. Launch TMDB search -> update immediately upon response
+    TMDBService.search(trimmed).then(tmdbRes => {
+      if (Array.isArray(tmdbRes) && tmdbRes.length > 0) {
+        updateAndRender(tmdbRes);
       }
-    });
+    }).catch(err => console.warn('[Roxy] TMDB search warning:', err));
+
+    // 2. Launch AnimeSaturn search -> update & reorder immediately upon response
+    AnimeSaturnService.search(trimmed).then(saturnRes => {
+      if (Array.isArray(saturnRes) && saturnRes.length > 0) {
+        updateAndRender(saturnRes);
+      }
+    }).catch(err => console.warn('[Roxy] AnimeSaturn search warning:', err));
   }
 
   // =========================================================================

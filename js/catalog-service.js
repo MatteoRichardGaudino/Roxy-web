@@ -100,10 +100,10 @@ const CatalogService = {
         }
       }
 
-      // 2. If no cache or cache older than 24h: fetch fresh catalog from API
-      await this.fetchAndSaveFreshCatalog();
+      // 2. If no cache or cache older than 24h: fetch fresh catalog from API in background
+      this.fetchAndSaveFreshCatalog().catch(e => console.warn('[CatalogService] Background sync warning:', e));
     } catch (err) {
-      console.error('[CatalogService] Error initializing catalog:', err);
+      console.warn('[CatalogService] Error initializing catalog:', err);
     } finally {
       this.isLoading = false;
     }
@@ -112,16 +112,25 @@ const CatalogService = {
   async fetchAndSaveFreshCatalog() {
     console.log('[CatalogService] Fetching fresh Italian catalog from VixSrc (Daily Sync)...');
 
-    const [moviesRes, tvRes, epRes] = await Promise.all([
-      fetch(CONFIG.CATALOG_LIST.MOVIE),
-      fetch(CONFIG.CATALOG_LIST.TV),
-      fetch(CONFIG.CATALOG_LIST.EPISODE)
-    ]);
+    const fetchEndpoint = async (url) => {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 6000);
+      try {
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(id);
+        if (res.ok) return await res.json();
+        return [];
+      } catch (e) {
+        clearTimeout(id);
+        console.warn(`[CatalogService] Endpoint error/timeout on ${url}:`, e.message);
+        return [];
+      }
+    };
 
     const [moviesData, tvData, epData] = await Promise.all([
-      moviesRes.ok ? moviesRes.json() : [],
-      tvRes.ok ? tvRes.json() : [],
-      epRes.ok ? epRes.json() : []
+      fetchEndpoint(CONFIG.CATALOG_LIST.MOVIE),
+      fetchEndpoint(CONFIG.CATALOG_LIST.TV),
+      fetchEndpoint(CONFIG.CATALOG_LIST.EPISODE)
     ]);
 
     const moviesList = [];

@@ -12,21 +12,30 @@ const TMDBService = {
       url.searchParams.append(key, params[key]);
     });
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
-      const response = await fetch(url.toString());
+      const response = await fetch(url.toString(), { signal: controller.signal });
+      clearTimeout(timeoutId);
       if (!response.ok) {
         throw new Error(`TMDB HTTP error ${response.status}`);
       }
       return await response.json();
     } catch (error) {
-      console.warn(`TMDB fetch failed for ${endpoint}, retrying with fallback language:`, error);
+      clearTimeout(timeoutId);
+      console.warn(`TMDB fetch failed for ${endpoint}, retrying with fallback language:`, error.message);
       // Try fallback to en-US if localized call had an issue
+      const fallbackController = new AbortController();
+      const fallbackTimeoutId = setTimeout(() => fallbackController.abort(), 4000);
       try {
         url.searchParams.set('language', CONFIG.TMDB.FALLBACK_LANGUAGE);
-        const fallbackRes = await fetch(url.toString());
+        const fallbackRes = await fetch(url.toString(), { signal: fallbackController.signal });
+        clearTimeout(fallbackTimeoutId);
         if (fallbackRes.ok) return await fallbackRes.json();
       } catch (e) {
-        console.error('TMDB fallback failed:', e);
+        clearTimeout(fallbackTimeoutId);
+        console.error('TMDB fallback failed:', e.message);
       }
       return { results: [] };
     }
