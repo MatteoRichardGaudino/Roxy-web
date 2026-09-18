@@ -5,6 +5,7 @@
 const StorageService = {
   KEYS: {
     CONTINUE_WATCHING: 'roxy_continue_watching',
+    PLAYBACK_POSITIONS: 'roxy_playback_positions',
     WATCHLIST: 'roxy_watchlist',
     SETTINGS: 'roxy_settings'
   },
@@ -18,7 +19,22 @@ const StorageService = {
   getContinueWatching() {
     try {
       const data = localStorage.getItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING));
-      return data ? JSON.parse(data) : [];
+      if (!data) return [];
+      const parsed = JSON.parse(data);
+      if (!Array.isArray(parsed)) return [];
+      
+      // Strict deduplication by media id
+      const seen = new Set();
+      const cleanList = [];
+      for (const item of parsed) {
+        if (!item || !item.id) continue;
+        const key = String(item.id);
+        if (!seen.has(key)) {
+          seen.add(key);
+          cleanList.push(item);
+        }
+      }
+      return cleanList;
     } catch (e) {
       console.error('Storage read error:', e);
       return [];
@@ -27,6 +43,16 @@ const StorageService = {
 
   getItemProgress(id) {
     try {
+      if (!id) return null;
+      // 1. Check persistent playback positions cache (persists even if hidden from continue watching)
+      const positionsData = localStorage.getItem(this.getUserKey(this.KEYS.PLAYBACK_POSITIONS));
+      if (positionsData) {
+        const positions = JSON.parse(positionsData);
+        if (positions && positions[String(id)]) {
+          return positions[String(id)];
+        }
+      }
+      // 2. Fallback to Continue Watching array
       const list = this.getContinueWatching();
       return list.find(i => String(i.id) === String(id)) || null;
     } catch (e) {
@@ -37,39 +63,57 @@ const StorageService = {
   saveWatchProgress(item, currentTime = 0, duration = 0) {
     try {
       if (!item || !item.id) return;
-      const list = this.getContinueWatching().filter(i => String(i.id) !== String(item.id));
-      const isTv = (item.media_type === 'tv' || item.media_type === 'anime' || !!item.name || (item.number_of_seasons !== undefined));
-      const progressPercent = duration > 0 ? Math.min(100, Math.round((currentTime / duration) * 100)) : 0;
+      const mediaId = String(item.id);
+      const isSaturn = (item.source === 'animesaturn' || mediaId.startsWith('saturn_'));
+      const isTv = (item.media_type === 'tv' || isSaturn || !!item.name || (item.number_of_seasons !== undefined));
       
+      const finalDuration = (duration && duration > 0) ? Math.floor(duration) : (isTv ? 2700 : 7200);
+      const finalCurrentTime = Math.max(0, Math.floor(currentTime || 0));
+      const progressPercent = Math.min(100, Math.round((finalCurrentTime / finalDuration) * 100));
+
+      const season = isTv ? (item.season || 1) : undefined;
+      const episode = isTv ? (item.episode || 1) : undefined;
+
       const record = {
         id: item.id,
-        source: item.source || 'tmdb',
+        source: item.source || (isSaturn ? 'animesaturn' : 'tmdb'),
         slug: item.slug || '',
         isDub: item.isDub || false,
-        media_type: item.media_type || (isTv ? 'tv' : 'movie'),
-        title: item.title || item.name,
+        media_type: item.media_type || (isSaturn ? 'anime' : (isTv ? 'tv' : 'movie')),
+        title: item.title || item.name || 'Streaming',
         backdrop_path: item.backdrop_path,
         poster_path: item.poster_path,
-        season: item.season || 1,
-        episode: item.episode || 1,
+        season: season,
+        episode: episode,
         episode_name: item.episode_name || '',
-        currentTime: Math.floor(currentTime),
-        duration: Math.floor(duration),
+        currentTime: finalCurrentTime,
+        duration: finalDuration,
         progress: progressPercent,
         updatedAt: Date.now()
       };
 
-      // Only save if user has watched at least 5 seconds and not finished (>95%)
+      // Always persist exact playback time in positions dictionary
+      try {
+        const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
+        const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
+        positions[mediaId] = record;
+        localStorage.setItem(positionsKey, JSON.stringify(positions));
+      } catch (err) {}
+
+      // Update Continue Watching Carousel list (filter out duplicates)
+      const list = this.getContinueWatching().filter(i => String(i.id) !== mediaId);
+
+      // Save to carousel if progress is not finished (>95%)
       if (progressPercent < 95) {
         list.unshift(record);
       }
       
-      // Keep up to 25 items in local storage
-      localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(list.slice(0, 25)));
+      // Keep up to 30 items in local carousel
+      localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(list.slice(0, 30)));
 
       // Sync to Supabase Cloud in background
-      if (window.SupabaseService && duration > 0) {
-        SupabaseService.syncWatchProgress(item, currentTime, duration).catch(() => {});
+      if (window.SupabaseService) {
+        SupabaseService.syncWatchProgress(item, finalCurrentTime, finalDuration).catch(() => {});
       }
     } catch (e) {
       console.error('Storage save error:', e);
@@ -78,8 +122,15 @@ const StorageService = {
 
   removeContinueWatching(id) {
     try {
-      const list = this.getContinueWatching().filter(i => String(i.id) !== String(id));
+      if (!id) return false;
+      const mediaId = String(id);
+      const list = this.getContinueWatching().filter(i => String(i.id) !== mediaId);
       localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(list));
+
+      // Update Supabase to set is_hidden = true while preserving minutaggio
+      if (window.SupabaseService) {
+        SupabaseService.hideWatchProgress(mediaId).catch(() => {});
+      }
       return true;
     } catch (e) {
       console.error('Storage remove error:', e);
@@ -153,6 +204,16 @@ const StorageService = {
 
       if (Array.isArray(cloudContinue) && cloudContinue.length > 0) {
         localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(cloudContinue));
+        
+        // Also populate positions cache
+        try {
+          const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
+          const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
+          for (const item of cloudContinue) {
+            positions[String(item.id)] = item;
+          }
+          localStorage.setItem(positionsKey, JSON.stringify(positions));
+        } catch (err) {}
       }
       if (Array.isArray(cloudWatchlist) && cloudWatchlist.length > 0) {
         localStorage.setItem(this.getUserKey(this.KEYS.WATCHLIST), JSON.stringify(cloudWatchlist));

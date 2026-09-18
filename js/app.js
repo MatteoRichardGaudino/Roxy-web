@@ -893,7 +893,7 @@ class RoxyApp {
 
     // "Rimuovi da Continua a guardare" Button Handler
     const btnRemoveContinue = document.getElementById('modal-btn-remove-continue');
-    const isContinueWatching = StorageService.getItemProgress(data.id) !== null;
+    const isContinueWatching = StorageService.getContinueWatching().some(i => String(i.id) === String(data.id));
     if (btnRemoveContinue) {
       if (isContinueWatching) {
         btnRemoveContinue.style.display = 'inline-flex';

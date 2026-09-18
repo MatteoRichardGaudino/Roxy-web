@@ -229,29 +229,36 @@ const SupabaseService = {
   // =========================================================================
   async syncWatchProgress(item, currentTime, duration) {
     const user = this.getActiveUser();
-    if (!user || !user.id || !item || !item.id || duration <= 0) return;
+    if (!user || !user.id || !item || !item.id) return;
 
     const mediaId = String(item.id);
-    const isTv = (item.media_type === 'tv' || !!item.name || (item.number_of_seasons !== undefined));
-    const season = item.season || (isTv ? 1 : 0);
-    const episode = item.episode || (isTv ? 1 : 0);
-    const progress = Math.min(100, Math.max(0, (currentTime / duration) * 100));
+    const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+    const isTv = (item.media_type === 'tv' || isSaturn || !!item.name || (item.number_of_seasons !== undefined));
+    
+    // Movies strictly use season 0, episode 0 to avoid duplicate rows
+    const season = isTv ? (Number(item.season) || 1) : 0;
+    const episode = isTv ? (Number(item.episode) || 1) : 0;
+    
+    const validDuration = (duration && duration > 0) ? Math.floor(duration) : (isTv ? 2700 : 7200);
+    const validCurrentTime = Math.max(0, Math.floor(currentTime || 0));
+    const progress = Math.min(100, Math.max(0, (validCurrentTime / validDuration) * 100));
 
     const payload = {
       user_id: user.id,
       media_id: mediaId,
-      source: item.source || 'tmdb',
-      media_type: item.media_type || (isTv ? 'tv' : 'movie'),
+      source: item.source || (isSaturn ? 'animesaturn' : 'tmdb'),
+      media_type: item.media_type || (isSaturn ? 'anime' : (isTv ? 'tv' : 'movie')),
       title: item.title || item.name || 'Streaming',
       poster_path: item.poster_path || '',
       backdrop_path: item.backdrop_path || '',
       season: season,
       episode: episode,
       episode_name: item.episode_name || '',
-      playback_time: Math.floor(currentTime),
-      duration: Math.floor(duration),
+      playback_time: validCurrentTime,
+      duration: validDuration,
       progress: Math.round(progress * 10) / 10,
       is_dub: !!item.isDub,
+      is_hidden: false,
       slug: item.slug || '',
       updated_at: new Date().toISOString()
     };
@@ -267,31 +274,61 @@ const SupabaseService = {
     }
   },
 
+  async hideWatchProgress(mediaId) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !mediaId) return;
+
+    try {
+      await this.restRequest(`watch_progress?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          is_hidden: true,
+          updated_at: new Date().toISOString()
+        })
+      });
+      this.logMetric('remove_continue_watching', mediaId);
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to hide watch progress:', e);
+    }
+  },
+
   async getCloudContinueWatching() {
     const user = this.getActiveUser();
     if (!user || !user.id) return [];
 
     try {
-      const rows = await this.restRequest(`watch_progress?user_id=eq.${user.id}&progress=lt.95&order=updated_at.desc&limit=25`);
+      const rows = await this.restRequest(`watch_progress?user_id=eq.${user.id}&is_hidden=eq.false&progress=lt.95&order=updated_at.desc&limit=35`);
       if (!Array.isArray(rows)) return [];
-      return rows.map(r => ({
-        id: r.media_id,
-        source: r.source,
-        media_type: r.media_type,
-        title: r.title,
-        name: r.title,
-        poster_path: r.poster_path,
-        backdrop_path: r.backdrop_path,
-        season: r.season > 0 ? r.season : undefined,
-        episode: r.episode > 0 ? r.episode : undefined,
-        episode_name: r.episode_name,
-        currentTime: Number(r.playback_time),
-        duration: Number(r.duration),
-        progress: Number(r.progress),
-        isDub: r.is_dub,
-        slug: r.slug,
-        timestamp: new Date(r.updated_at).getTime()
-      }));
+
+      const seen = new Set();
+      const uniqueList = [];
+
+      for (const r of rows) {
+        const key = String(r.media_id);
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        uniqueList.push({
+          id: r.media_id,
+          source: r.source,
+          media_type: r.media_type,
+          title: r.title,
+          name: r.title,
+          poster_path: r.poster_path,
+          backdrop_path: r.backdrop_path,
+          season: r.season > 0 ? r.season : undefined,
+          episode: r.episode > 0 ? r.episode : undefined,
+          episode_name: r.episode_name,
+          currentTime: Number(r.playback_time),
+          duration: Number(r.duration),
+          progress: Number(r.progress),
+          isDub: r.is_dub,
+          slug: r.slug,
+          timestamp: new Date(r.updated_at).getTime()
+        });
+      }
+
+      return uniqueList;
     } catch (e) {
       console.warn('[SupabaseService] Failed to load cloud continue watching:', e);
       return [];

@@ -34,7 +34,16 @@ const PlayerController = {
   handleIframeMessage(e) {
     if (!this.isActive || !this.currentItem) return;
     
-    if (e.data && e.data.type === 'ROXY_CLOSE_PLAYER') {
+    let msgData = e.data;
+    if (typeof msgData === 'string') {
+      try {
+        msgData = JSON.parse(msgData);
+      } catch (err) {}
+    }
+
+    if (!msgData) return;
+
+    if (msgData.type === 'ROXY_CLOSE_PLAYER') {
       this.close();
       return;
     }
@@ -42,22 +51,34 @@ const PlayerController = {
     let currentTime = null;
     let duration = null;
 
-    if (e.data && e.data.type === 'ROXY_PLAYBACK_PROGRESS') {
-      currentTime = e.data.currentTime;
-      duration = e.data.duration;
+    if (msgData.type === 'ROXY_PLAYBACK_PROGRESS') {
+      currentTime = Number(msgData.currentTime);
+      duration = Number(msgData.duration);
       this.hideLoadingCurtain();
-    } else if (e.data && e.data.type === 'PLAYER_EVENT') {
-      const data = e.data.data;
+    } else if (msgData.type === 'PLAYER_EVENT') {
+      const data = msgData.data;
       if (data && (data.event === 'timeupdate' || data.event === 'seeked' || data.event === 'pause' || data.event === 'play')) {
-        currentTime = data.currentTime;
-        duration = data.duration;
+        if (data.currentTime !== undefined) currentTime = Number(data.currentTime);
+        if (data.duration !== undefined) duration = Number(data.duration);
         this.hideLoadingCurtain();
       }
+    } else if (msgData.event === 'timeupdate' || msgData.event === 'time') {
+      if (msgData.currentTime !== undefined || msgData.position !== undefined) {
+        currentTime = Number(msgData.currentTime || msgData.position);
+      }
+      if (msgData.duration !== undefined) {
+        duration = Number(msgData.duration);
+      }
+      this.hideLoadingCurtain();
     }
 
-    if (currentTime !== null && duration !== null && duration > 0) {
-      StorageService.saveWatchProgress(this.currentItem, currentTime, duration);
-      this.updateProgressDisplay(currentTime, duration);
+    if (currentTime !== null && !isNaN(currentTime) && currentTime >= 0) {
+      this.currentSessionTime = Math.floor(currentTime);
+      if (duration !== null && !isNaN(duration) && duration > 0) {
+        this.estimatedDuration = Math.floor(duration);
+      }
+      StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
+      this.updateProgressDisplay(this.currentSessionTime, this.estimatedDuration);
     }
   },
 
@@ -272,12 +293,32 @@ const PlayerController = {
       window.navigatorInstance.setFocus(this.playBtn);
     }
 
+    // Initialize session ticker for robust web & TV progress tracking
+    this.currentSessionTime = resumeTime || 0;
+    this.estimatedDuration = isTv ? 2700 : 7200;
+    this.tickCount = 0;
+
+    if (this.sessionTicker) {
+      clearInterval(this.sessionTicker);
+      this.sessionTicker = null;
+    }
+
+    this.sessionTicker = setInterval(() => {
+      if (this.isActive && this.isPlaying && this.currentItem) {
+        this.currentSessionTime += 1;
+        this.tickCount += 1;
+        if (this.tickCount % 5 === 0) {
+          StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
+        }
+      }
+    }, 1000);
+
     // Save initial progress
     StorageService.saveWatchProgress({
       ...item,
       season: isTv ? season : undefined,
       episode: isTv ? episode : undefined
-    }, resumeTime || 0, 100);
+    }, resumeTime || 0, this.estimatedDuration);
   },
 
   async playSaturn(item, explicitResumeTime = null) {
@@ -348,6 +389,26 @@ const PlayerController = {
       window.navigatorInstance.setFocus(this.playBtn);
     }
 
+    // Initialize session ticker for anime playback
+    this.currentSessionTime = resumeTime || 0;
+    this.estimatedDuration = 1440; // 24m standard anime
+    this.tickCount = 0;
+
+    if (this.sessionTicker) {
+      clearInterval(this.sessionTicker);
+      this.sessionTicker = null;
+    }
+
+    this.sessionTicker = setInterval(() => {
+      if (this.isActive && this.isPlaying && this.currentItem) {
+        this.currentSessionTime += 1;
+        this.tickCount += 1;
+        if (this.tickCount % 5 === 0) {
+          StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
+        }
+      }
+    }, 1000);
+
     // Save initial progress
     StorageService.saveWatchProgress({
       ...item,
@@ -356,7 +417,7 @@ const PlayerController = {
       media_type: 'anime',
       season: 1,
       episode: epNum
-    }, resumeTime || 0, 100);
+    }, resumeTime || 0, this.estimatedDuration);
   },
 
   async loadDirectCleanSaturnEmbed(item, embedUrl, initialEmbedHtml = null, resumeTime = 0) {
@@ -877,9 +938,19 @@ const PlayerController = {
   close() {
     if (!this.isActive) return;
 
+    if (this.sessionTicker) {
+      clearInterval(this.sessionTicker);
+      this.sessionTicker = null;
+    }
+
     if (this.loadingTimeout) {
       clearTimeout(this.loadingTimeout);
       this.loadingTimeout = null;
+    }
+
+    // Flush last progress before unmounting
+    if (this.currentItem && this.currentSessionTime > 5) {
+      StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration || 7200);
     }
 
     if (this.videoEl) {
@@ -965,6 +1036,8 @@ const PlayerController = {
     if (!this.videoEl || !this.videoEl.duration) return;
     const current = this.videoEl.currentTime;
     const duration = this.videoEl.duration;
+    this.currentSessionTime = Math.floor(current);
+    this.estimatedDuration = Math.floor(duration);
     const percent = (current / duration) * 100;
 
     if (this.progressBar) {
