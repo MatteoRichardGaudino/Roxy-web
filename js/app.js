@@ -152,7 +152,10 @@ class RoxyApp {
           container.appendChild(slot);
         }
 
-        itemsPromise.then(rawItems => {
+        itemsPromise.then(async rawItems => {
+          if (!options.skipFilter) {
+            await CatalogService.ready();
+          }
           const items = options.skipFilter ? rawItems : CatalogService.filterAvailable(rawItems);
           if (!items || items.length === 0) {
             slot.remove();
@@ -161,7 +164,7 @@ class RoxyApp {
 
           // Populate Hero billboard with the first available batch of visual items
           if ((!this.heroItems || this.heroItems.length === 0) && items.some(i => i.backdrop_path)) {
-            this.heroItems = items.filter(i => i.backdrop_path).slice(0, 8);
+            this.heroItems = items.filter(i => i.backdrop_path && (options.skipFilter || CatalogService.isItemAvailable(i))).slice(0, 8);
             this.renderHeroBillboard();
             setTimeout(() => {
               const initialFocus = document.querySelector('.hero-actions .btn-primary-play') || 
@@ -245,6 +248,7 @@ class RoxyApp {
     if (!container || container.children.length > 0) return;
 
     try {
+      await CatalogService.ready();
       const [popular, topRated, thriller, comedy, horror] = await Promise.all([
         TMDBService.getPopularMovies(),
         TMDBService.getTopRatedMovies(),
@@ -271,6 +275,7 @@ class RoxyApp {
     if (!container || container.children.length > 0) return;
 
     try {
+      await CatalogService.ready();
       const [popular, topRated, drama, sciFi, crime] = await Promise.all([
         TMDBService.getPopularTV(),
         TMDBService.fetchTMDB('/tv/top_rated'),

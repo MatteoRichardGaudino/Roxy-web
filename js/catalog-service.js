@@ -72,40 +72,55 @@ const CatalogService = {
   },
 
   async init() {
-    if (this.isLoaded || this.isLoading) return;
+    if (this.isLoaded) return;
+    if (this._initPromise) return this._initPromise;
     this.isLoading = true;
 
-    try {
-      // 1. Check local cache and sync timestamp
-      const meta = await this.getFromDB(this.CACHE_KEY_META);
-      const now = Date.now();
+    this._initPromise = (async () => {
+      try {
+        // 1. Check local cache and sync timestamp
+        const meta = await this.getFromDB(this.CACHE_KEY_META);
+        const now = Date.now();
 
-      if (meta && meta.lastSyncTimestamp && (now - meta.lastSyncTimestamp < this.ONE_DAY_MS)) {
-        this.lastSyncTime = new Date(meta.lastSyncTimestamp);
-        console.log(`[CatalogService] Cache is valid (synced on ${this.lastSyncTime.toLocaleString()}). Loading from storage...`);
+        if (meta && meta.lastSyncTimestamp && (now - meta.lastSyncTimestamp < this.ONE_DAY_MS)) {
+          this.lastSyncTime = new Date(meta.lastSyncTimestamp);
+          console.log(`[CatalogService] Cache is valid (synced on ${this.lastSyncTime.toLocaleString()}). Loading from storage...`);
 
-        const [cachedMovies, cachedTv, cachedEpisodes] = await Promise.all([
-          this.getFromDB(this.CACHE_KEY_MOVIES),
-          this.getFromDB(this.CACHE_KEY_TV),
-          this.getFromDB(this.CACHE_KEY_EPISODES)
-        ]);
+          const [cachedMovies, cachedTv, cachedEpisodes] = await Promise.all([
+            this.getFromDB(this.CACHE_KEY_MOVIES),
+            this.getFromDB(this.CACHE_KEY_TV),
+            this.getFromDB(this.CACHE_KEY_EPISODES)
+          ]);
 
-        if (Array.isArray(cachedMovies) && Array.isArray(cachedTv) && Array.isArray(cachedEpisodes)) {
-          this.movies = new Set(cachedMovies);
-          this.tv = new Set(cachedTv);
-          this.episodes = new Set(cachedEpisodes);
-          this.isLoaded = true;
-          console.log(`[CatalogService] Loaded instant cache: ${this.movies.size} Movies, ${this.tv.size} TV Shows, ${this.episodes.size} Episodes.`);
-          return;
+          if (Array.isArray(cachedMovies) && Array.isArray(cachedTv) && Array.isArray(cachedEpisodes)) {
+            this.movies = new Set(cachedMovies);
+            this.tv = new Set(cachedTv);
+            this.episodes = new Set(cachedEpisodes);
+            this.isLoaded = true;
+            console.log(`[CatalogService] Loaded instant cache: ${this.movies.size} Movies, ${this.tv.size} TV Shows, ${this.episodes.size} Episodes.`);
+            return;
+          }
         }
-      }
 
-      // 2. If no cache or cache older than 24h: fetch fresh catalog from API in background
-      this.fetchAndSaveFreshCatalog().catch(e => console.warn('[CatalogService] Background sync warning:', e));
-    } catch (err) {
-      console.warn('[CatalogService] Error initializing catalog:', err);
-    } finally {
-      this.isLoading = false;
+        // 2. If no cache or cache older than 24h: fetch fresh catalog from API in background
+        await this.fetchAndSaveFreshCatalog();
+      } catch (err) {
+        console.warn('[CatalogService] Error initializing catalog:', err);
+      } finally {
+        this.isLoading = false;
+        this.isLoaded = true;
+      }
+    })();
+
+    return this._initPromise;
+  },
+
+  async ready() {
+    if (this.isLoaded) return;
+    if (this._initPromise) {
+      await this._initPromise;
+    } else {
+      await this.init();
     }
   },
 
@@ -181,28 +196,29 @@ const CatalogService = {
   },
 
   isMovieAvailable(tmdbId) {
-    if (!this.isLoaded) return true;
+    if (!this.movies || this.movies.size === 0) return false;
     return this.movies.has(Number(tmdbId));
   },
 
   isTvAvailable(tmdbId) {
-    if (!this.isLoaded) return true;
+    if (!this.tv || this.tv.size === 0) return false;
     return this.tv.has(Number(tmdbId));
   },
 
   isEpisodeAvailable(tmdbId, season, episode) {
-    if (!this.isLoaded) return true;
+    if (!this.episodes || this.episodes.size === 0) return false;
     return this.episodes.has(`${tmdbId}_${season}_${episode}`);
   },
 
   isItemAvailable(item) {
-    if (!this.isLoaded || !item || !item.id) return true;
+    if (!item || !item.id) return false;
+    if (item.source === 'animesaturn' || String(item.id).startsWith('saturn_')) return true;
     const isTv = (item.media_type === 'tv' || !!item.name || (item.number_of_seasons !== undefined));
     return isTv ? this.isTvAvailable(item.id) : this.isMovieAvailable(item.id);
   },
 
   filterAvailable(items) {
-    if (!this.isLoaded || !Array.isArray(items)) return items || [];
+    if (!Array.isArray(items)) return [];
     return items.filter(item => this.isItemAvailable(item));
   }
 };

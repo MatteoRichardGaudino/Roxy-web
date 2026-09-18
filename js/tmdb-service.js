@@ -57,8 +57,15 @@ const TMDBService = {
   // Get Trending items filtered for released media
   async getTrending(timeWindow = 'day') {
     const today = this.getTodayDate();
-    const data = await this.fetchTMDB(`/trending/all/${timeWindow}`);
-    const results = (data.results || []).filter(item => {
+    const [p1, p2] = await Promise.all([
+      this.fetchTMDB(`/trending/all/${timeWindow}`, { page: 1 }),
+      this.fetchTMDB(`/trending/all/${timeWindow}`, { page: 2 })
+    ]);
+    const raw = [...(p1.results || []), ...(p2.results || [])];
+    const seen = new Set();
+    const results = raw.filter(item => {
+      if (!item || !item.id || seen.has(item.id)) return false;
+      seen.add(item.id);
       const releaseDate = item.release_date || item.first_air_date;
       return item.backdrop_path && (item.title || item.name) && (!releaseDate || releaseDate <= today);
     });
@@ -68,78 +75,170 @@ const TMDBService = {
   // Get Currently Popular Movies available on Digital/Streaming (4) or Physical Disc (5)
   async getPopularMovies(page = 1) {
     const today = this.getTodayDate();
-    const data = await this.fetchTMDB('/discover/movie', {
-      with_release_type: '4|5',
-      'release_date.lte': today,
-      'vote_count.gte': 25,
-      sort_by: 'popularity.desc',
-      page
-    });
-    return (data.results || []).map(i => ({ ...i, media_type: 'movie' }));
+    const [p1, p2] = await Promise.all([
+      this.fetchTMDB('/discover/movie', {
+        with_release_type: '4|5',
+        'release_date.lte': today,
+        'vote_count.gte': 25,
+        sort_by: 'popularity.desc',
+        page: page * 2 - 1
+      }),
+      this.fetchTMDB('/discover/movie', {
+        with_release_type: '4|5',
+        'release_date.lte': today,
+        'vote_count.gte': 25,
+        sort_by: 'popularity.desc',
+        page: page * 2
+      })
+    ]);
+    const raw = [...(p1.results || []), ...(p2.results || [])];
+    const seen = new Set();
+    return raw.filter(i => {
+      if (!i || !i.id || seen.has(i.id)) return false;
+      seen.add(i.id);
+      return true;
+    }).map(i => ({ ...i, media_type: 'movie' }));
   },
 
   // Get All-Time Popular Blockbusters available on Digital / Disc
   async getAllTimePopularMovies(page = 1) {
     const today = this.getTodayDate();
-    const data = await this.fetchTMDB('/discover/movie', {
-      with_release_type: '4|5',
-      'release_date.lte': today,
-      'vote_count.gte': 500,
-      'vote_average.gte': 6.8,
-      sort_by: 'vote_count.desc',
-      page
-    });
-    return (data.results || []).map(i => ({ ...i, media_type: 'movie' }));
+    const [p1, p2] = await Promise.all([
+      this.fetchTMDB('/discover/movie', {
+        with_release_type: '4|5',
+        'release_date.lte': today,
+        'vote_count.gte': 500,
+        'vote_average.gte': 6.8,
+        sort_by: 'vote_count.desc',
+        page: page * 2 - 1
+      }),
+      this.fetchTMDB('/discover/movie', {
+        with_release_type: '4|5',
+        'release_date.lte': today,
+        'vote_count.gte': 500,
+        'vote_average.gte': 6.8,
+        sort_by: 'vote_count.desc',
+        page: page * 2
+      })
+    ]);
+    const raw = [...(p1.results || []), ...(p2.results || [])];
+    const seen = new Set();
+    return raw.filter(i => {
+      if (!i || !i.id || seen.has(i.id)) return false;
+      seen.add(i.id);
+      return true;
+    }).map(i => ({ ...i, media_type: 'movie' }));
   },
 
   // Get Popular TV Series
   async getPopularTV(page = 1) {
     const today = this.getTodayDate();
-    const data = await this.fetchTMDB('/discover/tv', {
-      'first_air_date.lte': today,
-      'vote_count.gte': 15,
-      sort_by: 'popularity.desc',
-      page
-    });
-    return (data.results || []).map(i => ({ ...i, media_type: 'tv' }));
+    const [p1, p2] = await Promise.all([
+      this.fetchTMDB('/discover/tv', {
+        'first_air_date.lte': today,
+        'vote_count.gte': 15,
+        sort_by: 'popularity.desc',
+        page: page * 2 - 1
+      }),
+      this.fetchTMDB('/discover/tv', {
+        'first_air_date.lte': today,
+        'vote_count.gte': 15,
+        sort_by: 'popularity.desc',
+        page: page * 2
+      })
+    ]);
+    const raw = [...(p1.results || []), ...(p2.results || [])];
+    const seen = new Set();
+    return raw.filter(i => {
+      if (!i || !i.id || seen.has(i.id)) return false;
+      seen.add(i.id);
+      return true;
+    }).map(i => ({ ...i, media_type: 'tv' }));
   },
 
   // Get Top Rated Movies available on Digital/Disc
   async getTopRatedMovies(page = 1) {
     const today = this.getTodayDate();
-    const data = await this.fetchTMDB('/discover/movie', {
-      with_release_type: '4|5',
-      'release_date.lte': today,
-      'vote_count.gte': 200,
-      'vote_average.gte': 7.5,
-      sort_by: 'vote_average.desc',
-      page
-    });
-    return (data.results || []).map(i => ({ ...i, media_type: 'movie' }));
+    const [p1, p2] = await Promise.all([
+      this.fetchTMDB('/discover/movie', {
+        with_release_type: '4|5',
+        'release_date.lte': today,
+        'vote_count.gte': 200,
+        'vote_average.gte': 7.5,
+        sort_by: 'vote_average.desc',
+        page: page * 2 - 1
+      }),
+      this.fetchTMDB('/discover/movie', {
+        with_release_type: '4|5',
+        'release_date.lte': today,
+        'vote_count.gte': 200,
+        'vote_average.gte': 7.5,
+        sort_by: 'vote_average.desc',
+        page: page * 2
+      })
+    ]);
+    const raw = [...(p1.results || []), ...(p2.results || [])];
+    const seen = new Set();
+    return raw.filter(i => {
+      if (!i || !i.id || seen.has(i.id)) return false;
+      seen.add(i.id);
+      return true;
+    }).map(i => ({ ...i, media_type: 'movie' }));
   },
 
   // Discover by Genre (filtered to released items only)
   async getByGenre(genreId, mediaType = 'movie', page = 1) {
     const today = this.getTodayDate();
     if (mediaType === 'tv') {
-      const data = await this.fetchTMDB('/discover/tv', {
-        with_genres: genreId,
-        'first_air_date.lte': today,
-        'vote_count.gte': 10,
-        sort_by: 'popularity.desc',
-        page
-      });
-      return (data.results || []).map(i => ({ ...i, media_type: 'tv' }));
+      const [p1, p2] = await Promise.all([
+        this.fetchTMDB('/discover/tv', {
+          with_genres: genreId,
+          'first_air_date.lte': today,
+          'vote_count.gte': 10,
+          sort_by: 'popularity.desc',
+          page: page * 2 - 1
+        }),
+        this.fetchTMDB('/discover/tv', {
+          with_genres: genreId,
+          'first_air_date.lte': today,
+          'vote_count.gte': 10,
+          sort_by: 'popularity.desc',
+          page: page * 2
+        })
+      ]);
+      const raw = [...(p1.results || []), ...(p2.results || [])];
+      const seen = new Set();
+      return raw.filter(i => {
+        if (!i || !i.id || seen.has(i.id)) return false;
+        seen.add(i.id);
+        return true;
+      }).map(i => ({ ...i, media_type: 'tv' }));
     } else {
-      const data = await this.fetchTMDB('/discover/movie', {
-        with_genres: genreId,
-        with_release_type: '4|5',
-        'release_date.lte': today,
-        'vote_count.gte': 15,
-        sort_by: 'popularity.desc',
-        page
-      });
-      return (data.results || []).map(i => ({ ...i, media_type: 'movie' }));
+      const [p1, p2] = await Promise.all([
+        this.fetchTMDB('/discover/movie', {
+          with_genres: genreId,
+          with_release_type: '4|5',
+          'release_date.lte': today,
+          'vote_count.gte': 15,
+          sort_by: 'popularity.desc',
+          page: page * 2 - 1
+        }),
+        this.fetchTMDB('/discover/movie', {
+          with_genres: genreId,
+          with_release_type: '4|5',
+          'release_date.lte': today,
+          'vote_count.gte': 15,
+          sort_by: 'popularity.desc',
+          page: page * 2
+        })
+      ]);
+      const raw = [...(p1.results || []), ...(p2.results || [])];
+      const seen = new Set();
+      return raw.filter(i => {
+        if (!i || !i.id || seen.has(i.id)) return false;
+        seen.add(i.id);
+        return true;
+      }).map(i => ({ ...i, media_type: 'movie' }));
     }
   },
 

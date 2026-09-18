@@ -82,7 +82,8 @@ const PlayerController = {
       this.timeCurrentEl.textContent = this.formatTime(currentTime);
     }
     if (this.timeDurationEl) {
-      this.timeDurationEl.textContent = this.formatTime(duration);
+      const remaining = Math.max(0, duration - currentTime);
+      this.timeDurationEl.textContent = `-${this.formatTime(remaining)}`;
     }
   },
 
@@ -978,7 +979,8 @@ const PlayerController = {
       this.timeCurrentEl.textContent = this.formatTime(current);
     }
     if (this.timeDurationEl) {
-      this.timeDurationEl.textContent = this.formatTime(duration);
+      const remaining = Math.max(0, duration - current);
+      this.timeDurationEl.textContent = `-${this.formatTime(remaining)}`;
     }
 
     if (this.currentItem) {
@@ -1002,9 +1004,14 @@ const PlayerController = {
   },
 
   formatTime(seconds) {
-    if (isNaN(seconds)) return '00:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
+    if (isNaN(seconds) || seconds < 0) return '00:00';
+    const totalSecs = Math.floor(seconds);
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+    if (hrs > 0) {
+      return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   },
 
