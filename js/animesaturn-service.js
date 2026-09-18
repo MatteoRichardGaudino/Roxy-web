@@ -1,22 +1,23 @@
-/**
+﻿/**
  * Roxy - AnimeSaturn Service
  * Scrapes anime catalog, details, episodes, and resolves direct video streams from SaturnCDN
  */
-class AnimeSaturnService {
-  constructor() {
-    this.DOMAINS = [
-      'https://www.animesaturn.net',
-      'https://www.animesaturn.cx',
-      'https://www.animesaturn.cc',
-      'https://www.animesaturn.com',
-      'https://www.animemars.org'
-    ];
-    this.currentDomainIndex = 0;
-  }
+const AnimeSaturnService = {
+  DOMAINS: [
+    'https://www.animesaturn.net',
+    'https://animemars.org',
+    'https://www.animesaturn.cx',
+    'https://www.animesaturn.cc',
+    'https://www.animesaturn.com'
+  ],
+  currentDomainIndex: 0,
 
   getBaseUrl() {
-    return this.DOMAINS[this.currentDomainIndex] || this.DOMAINS[0];
-  }
+    const domains = (window.DomainManager && window.DomainManager.saturnDomains && window.DomainManager.saturnDomains.length > 0)
+      ? window.DomainManager.saturnDomains
+      : this.DOMAINS;
+    return domains[this.currentDomainIndex] || domains[0];
+  },
 
   isDubAnime(title, slug) {
     if (!title && !slug) return false;
@@ -25,12 +26,12 @@ class AnimeSaturnService {
     if (t.includes('(ita)') || t.includes(' ita') || t.includes('doppiato') || t.includes('italiano')) return true;
     if (s.includes('-ita-') || s.endsWith('-ita') || s.includes('_ita_') || s.endsWith('_ita')) return true;
     return false;
-  }
+  },
 
   cleanAnimeTitle(title) {
     if (!title) return '';
     return title.replace(/\s*\((ITA|SUB|SUB ITA|ITA SUB)\)\s*/gi, '').replace(/\s*(ITA|SUB|DUB)\s*$/gi, '').trim();
-  }
+  },
 
   decodeSaturnResponse(encodedData, token) {
     try {
@@ -45,7 +46,7 @@ class AnimeSaturnService {
       console.error('[AnimeSaturn] XOR decode error:', e);
       return '';
     }
-  }
+  },
 
   async fetchWithFallback(path, options = {}) {
     const domains = (window.DomainManager && window.DomainManager.saturnDomains && window.DomainManager.saturnDomains.length > 0)
@@ -82,7 +83,7 @@ class AnimeSaturnService {
       }
     }
     throw new Error('All AnimeSaturn domains unreachable.');
-  }
+  },
 
   async getLatestAnime() {
     try {
@@ -92,7 +93,7 @@ class AnimeSaturnService {
       console.error('[AnimeSaturn] getLatestAnime failed:', err);
       return [];
     }
-  }
+  },
 
   async search(query) {
     if (!query || !query.trim()) return [];
@@ -104,7 +105,7 @@ class AnimeSaturnService {
       console.error('[AnimeSaturn] search failed:', err);
       return [];
     }
-  }
+  },
 
   parseAnimeCards(html, baseUrl) {
     const parser = new DOMParser();
@@ -163,7 +164,7 @@ class AnimeSaturnService {
       if (!a.isDub && b.isDub) return 1;
       return 0;
     });
-  }
+  },
 
   async getAnimeDetails(slug) {
     try {
@@ -242,7 +243,7 @@ class AnimeSaturnService {
       console.error('[AnimeSaturn] getAnimeDetails error:', err);
       return null;
     }
-  }
+  },
 
   async resolveStream(slug, epNum = 1) {
     try {
@@ -300,6 +301,6 @@ class AnimeSaturnService {
       return null;
     }
   }
-}
+};
 
-window.AnimeSaturnService = new AnimeSaturnService();
+window.AnimeSaturnService = AnimeSaturnService;

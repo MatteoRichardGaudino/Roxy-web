@@ -3,23 +3,24 @@
  * Synchronizes updated domains for VixSrc and AnimeSaturn from GitHub repositories
  * with local caching and non-blocking background updates.
  */
-class DomainManager {
-  constructor() {
-    this.CACHE_KEY = 'roxy_domains_cache';
-    this.VIX_DOMAINS_URL = 'https://raw.githubusercontent.com/qwertyuiop8899/streamvix/main/config/domains.jsonbk';
-    this.GITHUB_FILTERS_URL = 'https://raw.githubusercontent.com/LukeSavefrogs/animesaturn-adblock/main/animesaturn_filters.txt';
+const DomainManager = {
+  CACHE_KEY: 'roxy_domains_cache',
+  VIX_DOMAINS_URL: 'https://raw.githubusercontent.com/qwertyuiop8899/streamvix/main/config/domains.jsonbk',
+  GITHUB_FILTERS_URL: 'https://raw.githubusercontent.com/LukeSavefrogs/animesaturn-adblock/main/animesaturn_filters.txt',
 
-    this.vixDomain = 'https://vixsrc.to';
-    this.saturnDomains = [
-      'https://www.animesaturn.net',
-      'https://animemars.org',
-      'https://www.animesaturn.cx',
-      'https://www.animesaturn.cc',
-      'https://www.animesaturn.com'
-    ];
+  vixDomain: 'https://vixsrc.to',
+  saturnDomains: [
+    'https://www.animesaturn.net',
+    'https://animemars.org',
+    'https://www.animesaturn.cx',
+    'https://www.animesaturn.cc',
+    'https://www.animesaturn.com'
+  ],
 
+  init() {
     this.loadCache();
-  }
+    this.applyDomains();
+  },
 
   loadCache() {
     try {
@@ -36,7 +37,7 @@ class DomainManager {
     } catch (e) {
       console.warn('[DomainManager] Cache read warning:', e);
     }
-  }
+  },
 
   saveCache() {
     try {
@@ -46,15 +47,15 @@ class DomainManager {
         updatedAt: Date.now()
       }));
     } catch (e) {}
-  }
+  },
 
   getSaturnDomains() {
     return [...this.saturnDomains];
-  }
+  },
 
   getVixDomain() {
     return this.vixDomain;
-  }
+  },
 
   applyDomains() {
     if (window.AnimeSaturnService) {
@@ -74,12 +75,11 @@ class DomainManager {
       CONFIG.CATALOG_LIST.TV = `${base}/api/list/tv?lang=it`;
       CONFIG.CATALOG_LIST.EPISODE = `${base}/api/list/episode?lang=it`;
     }
-  }
+  },
 
   async syncFromGithub() {
     this.applyDomains();
 
-    // Run network check in background with short timeout
     const fetchWithTimeout = async (url, timeoutMs = 3500) => {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -147,6 +147,7 @@ class DomainManager {
       console.warn('[DomainManager] Sync error:', e);
     }
   }
-}
+};
 
-window.DomainManager = new DomainManager();
+DomainManager.init();
+window.DomainManager = DomainManager;
