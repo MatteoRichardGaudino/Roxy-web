@@ -181,25 +181,56 @@
       <!-- Player OSD (On-Screen Display) -->
       <div id="player-osd" class="player-osd">
         <div class="osd-top">
-          <div style="display: flex; align-items: center; gap: 16px;">
-            <button id="osd-btn-back" class="osd-btn navigable focus-compact" tabindex="0" title="Esci">✕</button>
+          <div style="display: flex; align-items: center; gap: 18px;">
+            <button id="osd-btn-back" class="osd-btn-circle navigable focus-compact" tabindex="0" title="Torna indietro">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+            </button>
             <h2 id="player-title" class="osd-media-title">Titolo Streaming</h2>
           </div>
+          <div class="osd-top-badge">
+            <span class="badge-quality">FULL HD 1080P</span>
+          </div>
+        </div>
+
+        <!-- Center Controls: Rewind 10s, Large Play/Pause, Forward 10s -->
+        <div class="osd-center-controls">
+          <button id="osd-btn-rw" class="osd-btn-circle navigable focus-compact" tabindex="0" title="Indietro 10s">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+              <text x="12" y="15" text-anchor="middle" font-size="7.2" font-weight="900" fill="currentColor" stroke="none">10</text>
+            </svg>
+          </button>
+          
+          <button id="osd-btn-play" class="osd-play-btn-large navigable" tabindex="0" title="Play/Pausa">
+            <svg id="osd-icon-pause" width="38" height="38" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="5" y="4" width="4.5" height="16" rx="2"></rect>
+              <rect x="14.5" y="4" width="4.5" height="16" rx="2"></rect>
+            </svg>
+            <svg id="osd-icon-play" width="38" height="38" viewBox="0 0 24 24" fill="currentColor" style="display: none; margin-left: 4px;">
+              <polygon points="6 4 20 12 6 20 6 4"></polygon>
+            </svg>
+          </button>
+          
+          <button id="osd-btn-ff" class="osd-btn-circle navigable focus-compact" tabindex="0" title="Avanti 10s">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path transform="translate(24,0) scale(-1,1)" d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+              <text x="12" y="15" text-anchor="middle" font-size="7.2" font-weight="900" fill="currentColor" stroke="none">10</text>
+            </svg>
+          </button>
         </div>
 
         <div class="osd-bottom">
           <div class="osd-progress-wrapper">
             <span id="osd-time-current" class="osd-time-text">00:00</span>
-            <div class="osd-progress-track">
-              <div id="osd-progress-filled" class="osd-progress-filled"></div>
+            <div class="osd-progress-track navigable focus-compact" tabindex="0" title="Scorri timeline">
+              <div id="osd-progress-filled" class="osd-progress-filled">
+                <div class="osd-progress-handle"></div>
+              </div>
             </div>
             <span id="osd-time-duration" class="osd-time-text">00:00</span>
-          </div>
-
-          <div class="osd-controls-row">
-            <button id="osd-btn-rw" class="osd-btn navigable focus-compact" tabindex="0" title="Riavvolgi 10s">↺ 10</button>
-            <button id="osd-btn-play" class="osd-btn play-btn navigable" tabindex="0" title="Play/Pausa">⏸</button>
-            <button id="osd-btn-ff" class="osd-btn navigable focus-compact" tabindex="0" title="Avanza 10s">10 ↻</button>
           </div>
         </div>
       </div>

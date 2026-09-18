@@ -59,17 +59,17 @@ const AnimeSaturnService = {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      // Fetch both DUB and SUB latest catalogs concurrently
+      // Fetch both DUB and SUB latest catalogs concurrently using proper catalog IDs
       const [dubRes, subRes] = await Promise.allSettled([
-        fetch(`${this.ADDON_URL}/catalog/series/animesaturn-latest.json`, { signal: controller.signal }),
-        fetch(`${this.ADDON_URL}/catalog/series/animesaturn-latest-sub.json`, { signal: controller.signal })
+        fetch(`${this.ADDON_URL}/catalog/series/animesaturn_dub.json`, { signal: controller.signal }),
+        fetch(`${this.ADDON_URL}/catalog/series/animesaturn_sub.json`, { signal: controller.signal })
       ]);
       clearTimeout(timeoutId);
 
       const items = [];
       const seenSlugs = new Set();
 
-      // Process DUB catalog first (Priority 1)
+      // Process DUB catalog (all items in this catalog are Italian Dubbed)
       if (dubRes.status === 'fulfilled' && dubRes.value.ok) {
         const dubData = await dubRes.value.json();
         const metas = dubData.metas || [];
@@ -97,7 +97,7 @@ const AnimeSaturnService = {
         this.updateStatusBadge(true);
       }
 
-      // Process SUB catalog
+      // Process SUB catalog (subtitled in Italian)
       if (subRes.status === 'fulfilled' && subRes.value.ok) {
         const subData = await subRes.value.json();
         const metas = subData.metas || [];
@@ -144,21 +144,21 @@ const AnimeSaturnService = {
       const timeoutId = setTimeout(() => controller.abort(), 4000);
 
       const [dubRes, subRes] = await Promise.allSettled([
-        fetch(`${this.ADDON_URL}/catalog/series/animesaturn-latest/search=${q}.json`, { signal: controller.signal }),
-        fetch(`${this.ADDON_URL}/catalog/series/animesaturn-latest-sub/search=${q}.json`, { signal: controller.signal })
+        fetch(`${this.ADDON_URL}/catalog/series/animesaturn_dub/search=${q}.json`, { signal: controller.signal }),
+        fetch(`${this.ADDON_URL}/catalog/series/animesaturn_sub/search=${q}.json`, { signal: controller.signal })
       ]);
       clearTimeout(timeoutId);
 
       const items = [];
       const seenSlugs = new Set();
 
-      const parseMetas = (metas, defaultDub) => {
+      const parseMetas = (metas, isDubCatalog) => {
         (metas || []).forEach(meta => {
           const rawSlug = (meta.id || '').replace(/^as:/, '');
           if (!rawSlug || seenSlugs.has(rawSlug)) return;
           seenSlugs.add(rawSlug);
 
-          const isDub = defaultDub || this.isDubAnime(meta.name, rawSlug);
+          const isDub = isDubCatalog || this.isDubAnime(meta.name, rawSlug);
           items.push({
             id: `saturn_${rawSlug}`,
             slug: rawSlug,

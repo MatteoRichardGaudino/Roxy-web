@@ -15,6 +15,9 @@ const PlayerController = {
     this.videoEl = document.getElementById('native-video-player');
     this.iframeEl = document.getElementById('stream-iframe-player');
     this.playBtn = document.getElementById('osd-btn-play');
+    this.iconPause = document.getElementById('osd-icon-pause');
+    this.iconPlay = document.getElementById('osd-icon-play');
+    this.progressTrack = document.querySelector('.osd-progress-track');
     this.timeCurrentEl = document.getElementById('osd-time-current');
     this.timeDurationEl = document.getElementById('osd-time-duration');
     this.progressBar = document.getElementById('osd-progress-filled');
@@ -100,6 +103,24 @@ const PlayerController = {
     const btnFf = document.getElementById('osd-btn-ff');
     if (btnFf) {
       btnFf.addEventListener('click', () => this.seek(10));
+    }
+
+    // Interactive timeline seeking on click or drag
+    if (this.progressTrack) {
+      const handleSeek = (e) => {
+        if (!this.videoEl || !this.videoEl.duration) return;
+        const rect = this.progressTrack.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+        this.videoEl.currentTime = ratio * this.videoEl.duration;
+        this.onTimeUpdate();
+        this.showOSD();
+      };
+
+      this.progressTrack.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleSeek(e);
+      });
     }
 
     // Video events
@@ -955,8 +976,11 @@ const PlayerController = {
   },
 
   updatePlayBtnIcon() {
-    if (this.playBtn) {
-      this.playBtn.innerHTML = this.isPlaying ? '⏸' : '▶';
+    if (this.iconPause && this.iconPlay) {
+      this.iconPause.style.display = this.isPlaying ? 'block' : 'none';
+      this.iconPlay.style.display = this.isPlaying ? 'none' : 'block';
+    } else if (this.playBtn) {
+      this.playBtn.textContent = this.isPlaying ? '⏸' : '▶';
     }
   },
 
@@ -968,6 +992,18 @@ const PlayerController = {
   },
 
   handleKey(code, e) {
+    // If progress bar is focused, LEFT and RIGHT scrub the video
+    if (this.progressTrack && this.progressTrack.classList.contains('focused')) {
+      if (code === CONFIG.KEYS.LEFT) {
+        this.seek(-10);
+        return true;
+      }
+      if (code === CONFIG.KEYS.RIGHT) {
+        this.seek(10);
+        return true;
+      }
+    }
+
     // Return true if handled
     if (code === CONFIG.KEYS.PLAY) {
       if (!this.isPlaying) this.togglePlay();
@@ -982,14 +1018,14 @@ const PlayerController = {
       return true;
     }
     if (code === CONFIG.KEYS.FAST_FORWARD) {
-      this.seek(15);
+      this.seek(10);
       return true;
     }
     if (code === CONFIG.KEYS.REWIND) {
-      this.seek(-15);
+      this.seek(-10);
       return true;
     }
-    if (code === CONFIG.KEYS.UP || code === CONFIG.KEYS.DOWN) {
+    if (code === CONFIG.KEYS.UP || code === CONFIG.KEYS.DOWN || code === CONFIG.KEYS.LEFT || code === CONFIG.KEYS.RIGHT) {
       this.showOSD();
       return false; // let spatial nav move inside OSD
     }
