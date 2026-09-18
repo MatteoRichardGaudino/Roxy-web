@@ -78,73 +78,68 @@ const PlayerController = {
       return;
     }
 
-    // Official VixSrc Player Event Tracking:
-    // { type: "PLAYER_EVENT", data: { event: "play"|"pause"|"seeked"|"ended"|"timeupdate", currentTime, duration, video_id } }
-    if (msgData.type === 'PLAYER_EVENT' && msgData.data) {
-      const data = msgData.data;
-      const eventName = data.event;
-      const currTime = (typeof data.currentTime === 'number' && !isNaN(data.currentTime)) ? Math.floor(data.currentTime) : null;
-      const dur = (typeof data.duration === 'number' && !isNaN(data.duration) && data.duration > 0) ? Math.floor(data.duration) : null;
+    // Extract payload from either { type: "PLAYER_EVENT", data: {...} }, stringified JSON, or flat event object
+    let data = (msgData.type === 'PLAYER_EVENT' && msgData.data) ? msgData.data : msgData;
+    if (typeof data === 'string') {
+      try { data = JSON.parse(data); } catch (err) {}
+    }
 
+    if (!data || typeof data !== 'object') return;
+
+    const eventName = (data.event || msgData.event || msgData.type || '').toLowerCase();
+    const rawCurrTime = (data.currentTime !== undefined) ? data.currentTime : 
+                        ((data.position !== undefined) ? data.position : 
+                        ((data.time !== undefined) ? data.time : 
+                        ((msgData.currentTime !== undefined) ? msgData.currentTime : 
+                        ((msgData.position !== undefined) ? msgData.position : null))));
+    const rawDur = (data.duration !== undefined) ? data.duration : (msgData.duration !== undefined ? msgData.duration : null);
+
+    const currTime = (rawCurrTime !== null && !isNaN(Number(rawCurrTime))) ? Math.floor(Number(rawCurrTime)) : null;
+    const dur = (rawDur !== null && !isNaN(Number(rawDur)) && Number(rawDur) > 0) ? Math.floor(Number(rawDur)) : null;
+
+    if (eventName || currTime !== null) {
+      console.log(`[Roxy Player Message] Event: ${eventName}, Time: ${currTime}s, Dur: ${dur}s`);
+    }
+
+    if (currTime !== null && currTime >= 0) {
       this.hasReceivedIframeEvent = true;
-      this.hideLoadingCurtain();
-
+      this.currentSessionTime = currTime;
       if (dur !== null && dur > 0) {
         this.estimatedDuration = dur;
       }
+      this.hideLoadingCurtain();
+      this.updateProgressDisplay(this.currentSessionTime, this.estimatedDuration);
+    }
 
-      if (currTime !== null && currTime >= 0) {
-        this.currentSessionTime = currTime;
-        this.updateProgressDisplay(this.currentSessionTime, this.estimatedDuration);
+    if (eventName === 'play') {
+      this.isPlaying = true;
+      this.hideLoadingCurtain();
+      this.updatePlayBtnIcon();
+    } else if (eventName === 'pause') {
+      this.isPlaying = false;
+      this.updatePlayBtnIcon();
+      if (this.currentSessionTime > 0) {
+        StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
       }
-
-      if (eventName === 'play') {
-        this.isPlaying = true;
-        this.updatePlayBtnIcon();
-      } else if (eventName === 'pause') {
-        this.isPlaying = false;
-        this.updatePlayBtnIcon();
+    } else if (eventName === 'seeked' || eventName === 'seek') {
+      if (this.currentSessionTime >= 0) {
+        console.log(`[Roxy Player] Seeked event saved at: ${this.currentSessionTime}s`);
+        StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
+      }
+    } else if (eventName === 'ended') {
+      this.isPlaying = false;
+      this.onEnded();
+      if (this.estimatedDuration > 0) {
+        StorageService.saveWatchProgress(this.currentItem, this.estimatedDuration, this.estimatedDuration);
+      }
+    } else if (eventName === 'timeupdate' || eventName === 'time' || eventName === 'roxy_playback_progress') {
+      const now = Date.now();
+      if (!this.lastProgressSave || (now - this.lastProgressSave > 3000)) {
+        this.lastProgressSave = now;
         if (this.currentSessionTime > 0) {
           StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
         }
-      } else if (eventName === 'seeked') {
-        if (this.currentSessionTime >= 0) {
-          console.log(`[Roxy Player] VixSrc seeked event received at: ${this.currentSessionTime}s`);
-          StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
-        }
-      } else if (eventName === 'ended') {
-        this.isPlaying = false;
-        this.onEnded();
-        if (this.estimatedDuration > 0) {
-          StorageService.saveWatchProgress(this.currentItem, this.estimatedDuration, this.estimatedDuration);
-        }
-      } else if (eventName === 'timeupdate') {
-        const now = Date.now();
-        if (!this.lastProgressSave || (now - this.lastProgressSave > 3500)) {
-          this.lastProgressSave = now;
-          if (this.currentSessionTime > 0) {
-            StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
-          }
-        }
       }
-      return;
-    }
-
-    // Custom injected ROXY playback progress (e.g. clean webOS JWPlayer embed)
-    if (msgData.type === 'ROXY_PLAYBACK_PROGRESS') {
-      const currTime = Number(msgData.currentTime);
-      const dur = Number(msgData.duration);
-      this.hasReceivedIframeEvent = true;
-      this.hideLoadingCurtain();
-
-      if (!isNaN(currTime) && currTime >= 0) {
-        this.currentSessionTime = Math.floor(currTime);
-      }
-      if (!isNaN(dur) && dur > 0) {
-        this.estimatedDuration = Math.floor(dur);
-      }
-      StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
-      this.updateProgressDisplay(this.currentSessionTime, this.estimatedDuration);
     }
   },
 
