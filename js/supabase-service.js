@@ -17,16 +17,23 @@ const SupabaseService = {
       ...(options.headers || {})
     };
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const isKeepalive = !!options.keepalive;
+    let signal = undefined;
+    let timeoutId = undefined;
+
+    if (!isKeepalive && typeof AbortController !== 'undefined') {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), 6000);
+      signal = controller.signal;
+    }
 
     try {
       const response = await fetch(url, {
         ...options,
         headers,
-        signal: controller.signal
+        signal
       });
-      clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errText = await response.text().catch(() => '');
@@ -42,7 +49,7 @@ const SupabaseService = {
         return text;
       }
     } catch (err) {
-      clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
       console.warn(`[SupabaseService] Request error on ${endpoint}:`, err.message);
       throw err;
     }
@@ -267,7 +274,8 @@ const SupabaseService = {
       await this.restRequest('watch_progress?on_conflict=user_id,media_id,season,episode', {
         method: 'POST',
         headers: { 'Prefer': 'resolution=merge-duplicates' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        keepalive: true
       });
     } catch (e) {
       console.warn('[SupabaseService] Cloud progress sync notice:', e.message);

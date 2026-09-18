@@ -40,9 +40,21 @@ const PlayerController = {
     });
   },
 
+  calculateCurrentPlaybackTime() {
+    if (this.videoEl && this.videoEl.style.display !== 'none' && this.videoEl.currentTime > 0) {
+      return Math.floor(this.videoEl.currentTime);
+    }
+    const elapsedSec = this.playStartTime ? Math.max(0, Math.floor((Date.now() - this.playStartTime) / 1000)) : 0;
+    const computedSec = (this.initialResumeSec || 0) + elapsedSec;
+    return Math.max(this.currentSessionTime || 0, computedSec);
+  },
+
   flushSessionProgress() {
-    if (this.isActive && this.currentItem && this.currentSessionTime > 5) {
-      StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration || 7200);
+    if (this.isActive && this.currentItem) {
+      const finalTime = this.calculateCurrentPlaybackTime();
+      if (finalTime > 0) {
+        StorageService.saveWatchProgress(this.currentItem, finalTime, this.estimatedDuration || 7200);
+      }
     }
   },
 
@@ -56,7 +68,7 @@ const PlayerController = {
       } catch (err) {}
     }
 
-    if (!msgData) return;
+    if (!msgData || typeof msgData !== 'object') return;
 
     if (msgData.type === 'ROXY_CLOSE_PLAYER') {
       this.close();
@@ -73,22 +85,20 @@ const PlayerController = {
     } else if (msgData.type === 'PLAYER_EVENT') {
       const data = msgData.data;
       if (data && (data.event === 'timeupdate' || data.event === 'seeked' || data.event === 'pause' || data.event === 'play')) {
-        if (data.currentTime !== undefined) currentTime = Number(data.currentTime);
-        if (data.duration !== undefined) duration = Number(data.duration);
+        if (data.currentTime !== undefined && !isNaN(data.currentTime) && Number(data.currentTime) > 0) {
+          currentTime = Number(data.currentTime);
+        }
+        if (data.duration !== undefined && !isNaN(data.duration) && Number(data.duration) > 0) {
+          duration = Number(data.duration);
+        }
         this.hideLoadingCurtain();
       }
-    } else if (msgData.event === 'timeupdate' || msgData.event === 'time') {
-      if (msgData.currentTime !== undefined || msgData.position !== undefined) {
-        currentTime = Number(msgData.currentTime || msgData.position);
-      }
-      if (msgData.duration !== undefined) {
-        duration = Number(msgData.duration);
-      }
-      this.hideLoadingCurtain();
     }
 
-    if (currentTime !== null && !isNaN(currentTime) && currentTime >= 0) {
+    if (currentTime !== null && !isNaN(currentTime) && currentTime > 0) {
       this.currentSessionTime = Math.floor(currentTime);
+      this.initialResumeSec = this.currentSessionTime;
+      this.playStartTime = Date.now();
       if (duration !== null && !isNaN(duration) && duration > 0) {
         this.estimatedDuration = Math.floor(duration);
       }
@@ -346,6 +356,8 @@ const PlayerController = {
     }
 
     // Initialize session ticker for robust web & TV progress tracking
+    this.playStartTime = Date.now();
+    this.initialResumeSec = resumeSec;
     this.currentSessionTime = resumeSec;
     this.estimatedDuration = isTv ? 2700 : 7200;
     this.tickCount = 0;
@@ -357,10 +369,11 @@ const PlayerController = {
 
     this.sessionTicker = setInterval(() => {
       if (this.isActive && this.currentItem) {
-        this.currentSessionTime += 1;
+        const currentPos = this.calculateCurrentPlaybackTime();
+        this.currentSessionTime = currentPos;
         this.tickCount += 1;
         if (this.tickCount % 5 === 0) {
-          StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
+          StorageService.saveWatchProgress(this.currentItem, currentPos, this.estimatedDuration);
         }
       }
     }, 1000);
@@ -451,6 +464,8 @@ const PlayerController = {
     }
 
     // Initialize session ticker for anime playback
+    this.playStartTime = Date.now();
+    this.initialResumeSec = resumeSec;
     this.currentSessionTime = resumeSec;
     this.estimatedDuration = 1440; // 24m standard anime
     this.tickCount = 0;
@@ -462,10 +477,11 @@ const PlayerController = {
 
     this.sessionTicker = setInterval(() => {
       if (this.isActive && this.currentItem) {
-        this.currentSessionTime += 1;
+        const currentPos = this.calculateCurrentPlaybackTime();
+        this.currentSessionTime = currentPos;
         this.tickCount += 1;
         if (this.tickCount % 5 === 0) {
-          StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration);
+          StorageService.saveWatchProgress(this.currentItem, currentPos, this.estimatedDuration);
         }
       }
     }, 1000);
@@ -1015,8 +1031,11 @@ const PlayerController = {
     }
 
     // Flush last progress before unmounting
-    if (this.currentItem && this.currentSessionTime > 5) {
-      StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration || 7200);
+    if (this.currentItem) {
+      const finalTime = this.calculateCurrentPlaybackTime();
+      if (finalTime > 0) {
+        StorageService.saveWatchProgress(this.currentItem, finalTime, this.estimatedDuration || 7200);
+      }
     }
 
     if (this.videoEl) {
@@ -1030,6 +1049,7 @@ const PlayerController = {
 
     this.container.classList.remove('active');
     this.isActive = false;
+    this.playStartTime = null;
     window.navigatorInstance.setPlayerActive(false);
 
     if (this.loadingCurtain) {

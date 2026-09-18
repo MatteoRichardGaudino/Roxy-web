@@ -511,7 +511,10 @@ class RoxyApp {
           const progressPercent = item.progress || (item.duration > 0 ? Math.round((item.currentTime / item.duration) * 100) : 0);
           const currentMins = Math.floor((item.currentTime || 0) / 60);
           const durMins = Math.floor((item.duration || 0) / 60);
-          const timeText = (durMins > 0) ? `${currentMins}/${durMins} min` : (currentMins > 0 ? `${currentMins} min` : '');
+          const currentSecs = (item.currentTime || 0) % 60;
+          const timeText = (durMins > 0) 
+            ? (currentMins > 0 ? `${currentMins}/${durMins} min` : `${currentSecs}s/${durMins}m`) 
+            : (currentMins > 0 ? `${currentMins} min` : `${currentSecs}s`);
           const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
           const isTv = (item.media_type === 'tv' || isSaturn);
           const subInfo = isSaturn 
