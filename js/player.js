@@ -30,6 +30,11 @@ const PlayerController = {
   handleIframeMessage(e) {
     if (!this.isActive || !this.currentItem) return;
     
+    if (e.data && e.data.type === 'ROXY_CLOSE_PLAYER') {
+      this.close();
+      return;
+    }
+
     let currentTime = null;
     let duration = null;
 
@@ -252,34 +257,20 @@ const PlayerController = {
       console.log(`[Roxy Player] Resolving AnimeSaturn stream for: ${slug} ep ${epNum}`);
       const res = await AnimeSaturnService.resolveStream(slug, epNum);
 
-      if (res && res.type === 'direct' && res.streamUrl) {
-        console.log(`[Roxy Player] Playing direct Saturn stream: ${res.streamUrl}`);
-        if (this.osd) this.osd.classList.remove('iframe-mode');
-        this.iframeEl.style.display = 'none';
-        this.videoEl.style.display = 'block';
-        this.videoEl.src = res.streamUrl;
-        
-        if (resumeTime && resumeTime > 0) {
-          this.videoEl.currentTime = resumeTime;
-        }
-        
-        this.videoEl.play().catch(e => console.warn('Saturn direct autoplay prevented:', e));
-        if (osdBottom) osdBottom.style.display = 'flex';
-      } else if (res && res.type === 'iframe' && res.streamUrl) {
-        console.log(`[Roxy Player] Playing Saturn iframe embed: ${res.streamUrl}`);
-        this.videoEl.style.display = 'none';
-        this.iframeEl.style.display = 'block';
-        this.iframeEl.removeAttribute('sandbox');
-        this.iframeEl.setAttribute('allow', 'fullscreen; autoplay; encrypted-media; picture-in-picture');
-        this.iframeEl.setAttribute('referrerpolicy', 'origin');
-        this.iframeEl.src = res.streamUrl;
-        
-        if (this.osd) this.osd.classList.add('iframe-mode');
-        if (osdBottom) osdBottom.style.display = 'none';
-        this.hideLoadingCurtain();
-      } else {
+      if (!res || !res.embedUrl) {
         throw new Error('No stream available from AnimeSaturn');
       }
+
+      console.log(`[Roxy Player] Loading direct clean Saturn embed for: ${res.embedUrl}`);
+      this.videoEl.style.display = 'none';
+      this.iframeEl.style.display = 'block';
+
+      await this.loadDirectCleanSaturnEmbed(item, res.embedUrl, res.embedHtml, resumeTime || 0);
+
+      if (this.osd) this.osd.classList.add('iframe-mode');
+      if (osdBottom) osdBottom.style.display = 'none';
+      setTimeout(() => this.hideLoadingCurtain(), 1200);
+
     } catch (err) {
       console.error('[Roxy Player] AnimeSaturn playback failed:', err);
       this.hideLoadingCurtain();
@@ -310,6 +301,210 @@ const PlayerController = {
       season: 1,
       episode: epNum
     }, resumeTime || 0, 100);
+  },
+
+  async loadDirectCleanSaturnEmbed(item, embedUrl, initialEmbedHtml = null, resumeTime = 0) {
+    const resumeSec = Math.floor(resumeTime || 0);
+
+    // In-Frame Anti-Ad Shield script
+    const antiAdScript = `
+      <script>
+      (function() {
+        const noop = function() {};
+
+        // 1. Neutralize window.open
+        try {
+          const fakeWin = {
+            focus: noop, blur: noop, close: noop, closed: true,
+            document: {}, location: { href: '', replace: noop, assign: noop },
+            postMessage: noop
+          };
+          Object.defineProperty(window, 'open', {
+            value: function(url) {
+              console.warn('[Roxy AdBlocker] Blocked popup to:', url);
+              return fakeWin;
+            },
+            writable: false, configurable: false
+          });
+        } catch(e) {}
+
+        // 2. Block ad script injection
+        const origCreate = document.createElement.bind(document);
+        document.createElement = function(tag, opts) {
+          const el = origCreate(tag, opts);
+          if (tag && tag.toLowerCase() === 'script') {
+            const origSetAttr = el.setAttribute.bind(el);
+            el.setAttribute = function(name, val) {
+              if (name === 'src' && typeof val === 'string' && (val.includes('acscdn.com') || val.includes('spbgc.com') || val.includes('a-ads.com') || val.includes('zone') || val.includes('popunder') || val.includes('adcash'))) {
+                console.warn('[Roxy AdBlocker] Blocked ad script attribute:', val);
+                return;
+              }
+              return origSetAttr(name, val);
+            };
+          }
+          return el;
+        };
+
+        // 3. Purge ad overlays
+        function purgeAdOverlays() {
+          try {
+            document.querySelectorAll('div, a, span, iframe').forEach(function(el) {
+              if (!el || el.id === 'embed-shell' || el.tagName === 'VIDEO' || el.closest('#embed-shell')) {
+                return;
+              }
+              const id = (el.id || '').toLowerCase();
+              const className = (el.className || '').toString().toLowerCase();
+
+              if (id.startsWith('ad') || id.includes('pop') || id.includes('banner') || className.includes('overlay-ad') || id.includes('zone') || id.includes('aclib')) {
+                el.remove();
+                return;
+              }
+            });
+          } catch(err) {}
+        }
+
+        const observer = new MutationObserver(purgeAdOverlays);
+        observer.observe(document.documentElement || document, { childList: true, subtree: true });
+        setInterval(purgeAdOverlays, 300);
+      })();
+      </script>
+    `;
+
+    const tvControllerScript = `
+      <script>
+      (function() {
+        const startSec = ${resumeSec};
+        let hasResumed = false;
+
+        function attachVideoListeners() {
+          const v = document.querySelector('video');
+          if (!v) {
+            setTimeout(attachVideoListeners, 250);
+            return;
+          }
+
+          v.addEventListener('loadedmetadata', function() {
+            if (startSec > 5 && !hasResumed) {
+              hasResumed = true;
+              v.currentTime = startSec;
+              console.log('[Roxy Saturn] Resumed at:', startSec);
+            }
+          });
+
+          v.addEventListener('play', function() {
+            window.parent.postMessage({ type: 'PLAYER_EVENT', data: { event: 'play' } }, '*');
+          });
+
+          v.addEventListener('pause', function() {
+            window.parent.postMessage({ type: 'PLAYER_EVENT', data: { event: 'pause' } }, '*');
+          });
+
+          v.addEventListener('timeupdate', function() {
+            window.parent.postMessage({
+              type: 'ROXY_PLAYBACK_PROGRESS',
+              currentTime: Math.round(v.currentTime),
+              duration: v.duration || 0
+            }, '*');
+          });
+
+          v.addEventListener('ended', function() {
+            window.parent.postMessage({ type: 'PLAYER_EVENT', data: { event: 'ended' } }, '*');
+          });
+        }
+
+        document.addEventListener('keydown', function(e) {
+          const v = document.querySelector('video');
+          if (!v) return;
+
+          if (e.key === 'ArrowLeft' || e.keyCode === 37) {
+            e.preventDefault();
+            v.currentTime = Math.max(0, v.currentTime - 10);
+          } else if (e.key === 'ArrowRight' || e.keyCode === 39) {
+            e.preventDefault();
+            v.currentTime = Math.min(v.duration || Infinity, v.currentTime + 10);
+          } else if (e.key === ' ' || e.key === 'Enter' || e.keyCode === 13 || e.keyCode === 32) {
+            e.preventDefault();
+            if (v.paused) v.play(); else v.pause();
+          } else if (e.key === 'ArrowUp' || e.keyCode === 38) {
+            e.preventDefault();
+            v.volume = Math.min(1, v.volume + 0.05);
+          } else if (e.key === 'ArrowDown' || e.keyCode === 40) {
+            e.preventDefault();
+            v.volume = Math.max(0, v.volume - 0.05);
+          } else if (e.key === 'Escape' || e.keyCode === 27 || e.keyCode === 461) {
+            window.parent.postMessage({ type: 'ROXY_CLOSE_PLAYER' }, '*');
+          }
+        });
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', attachVideoListeners);
+        } else {
+          attachVideoListeners();
+        }
+      })();
+      </script>
+      <style>
+        html, body {
+          margin: 0 !important;
+          padding: 0 !important;
+          width: 100vw !important;
+          height: 100vh !important;
+          overflow: hidden !important;
+          background: #000000 !important;
+        }
+        #embed-shell, video, iframe {
+          width: 100vw !important;
+          height: 100vh !important;
+          border: none !important;
+          outline: none !important;
+          background: #000000 !important;
+        }
+      </style>
+    `;
+
+    try {
+      let rawHtml = initialEmbedHtml;
+      if (!rawHtml) {
+        const res = await fetch(embedUrl, {
+          headers: {
+            'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8'
+          }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        rawHtml = await res.text();
+      }
+
+      let cleanHtml = rawHtml;
+
+      // Inject base tag, antiAdScript, and tvControllerScript
+      if (cleanHtml.includes('<head>')) {
+        cleanHtml = cleanHtml.replace('<head>', '<head><base href="https://play.saturncdn.net/">' + antiAdScript);
+      } else {
+        cleanHtml = '<head><base href="https://play.saturncdn.net/">' + antiAdScript + '</head>' + cleanHtml;
+      }
+
+      // Remove third party ad tags from HTML
+      cleanHtml = cleanHtml
+        .replace(/<script[^>]*acscdn\.com[^>]*><\/script>/gi, '')
+        .replace(/<script[^>]*aclib\.runPop[^<]*<\/script>/gi, '')
+        .replace(/<script[^>]*a-ads\.com[^>]*><\/script>/gi, '');
+
+      // Append TV controller & custom styles before </body>
+      if (cleanHtml.includes('</body>')) {
+        cleanHtml = cleanHtml.replace('</body>', tvControllerScript + '</body>');
+      } else {
+        cleanHtml += tvControllerScript;
+      }
+
+      this.iframeEl.removeAttribute('sandbox');
+      this.iframeEl.setAttribute('allow', 'fullscreen; autoplay; encrypted-media; picture-in-picture');
+      this.iframeEl.srcdoc = cleanHtml;
+      console.log('[Roxy Player] Successfully loaded custom clean Saturn embed into srcdoc.');
+    } catch (err) {
+      console.warn('[Roxy Player] Error loading Saturn embed via srcdoc, fallback direct src:', err);
+      this.iframeEl.removeAttribute('srcdoc');
+      this.iframeEl.src = embedUrl;
+    }
   },
 
   async loadDirectCleanEmbed(item, isTv, season, episode, fallbackUrl, resumeTime = 0) {

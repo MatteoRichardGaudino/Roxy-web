@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Roxy - AnimeSaturn Service
  * Scrapes anime catalog, details, episodes, and resolves direct video streams from SaturnCDN
  */
@@ -247,7 +247,6 @@ const AnimeSaturnService = {
 
   async resolveStream(slug, epNum = 1) {
     try {
-      const baseUrl = this.getBaseUrl();
       const watchPath = `/anime/${slug}/ep-${epNum}`;
       console.log(`[AnimeSaturn] Resolving stream from ${watchPath}...`);
 
@@ -260,42 +259,32 @@ const AnimeSaturnService = {
         throw new Error('Watch iframe not found in page');
       }
 
-      let iframeSrc = iframe.getAttribute('src') || '';
-      if (iframeSrc.startsWith('//')) iframeSrc = 'https:' + iframeSrc;
+      let rawIframeSrc = iframe.getAttribute('src') || '';
+      if (rawIframeSrc.startsWith('//')) rawIframeSrc = 'https:' + rawIframeSrc;
+      
+      // Unescape HTML entities (e.g. &amp; -> &)
+      const cleanIframeSrc = rawIframeSrc.replace(/&amp;/g, '&');
+      console.log(`[AnimeSaturn] Found embed iframe URL: ${cleanIframeSrc}`);
 
-      const u = new URL(iframeSrc);
-      const token = u.searchParams.get('token');
-      const expires = u.searchParams.get('expires');
-
-      if (!token) {
-        return { type: 'iframe', streamUrl: iframeSrc };
-      }
-
-      const playlistUrl = `${u.origin}${u.pathname}/playlist?token=${token}` + (expires ? `&expires=${expires}` : '');
-      console.log(`[AnimeSaturn] Fetching playlist: ${playlistUrl}`);
-
-      const playRes = await fetch(playlistUrl, {
-        headers: {
-          'Referer': 'https://play.saturncdn.net'
+      let embedHtml = '';
+      try {
+        const embedRes = await fetch(cleanIframeSrc, {
+          headers: {
+            'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8'
+          }
+        });
+        if (embedRes.ok) {
+          embedHtml = await embedRes.text();
         }
-      });
-
-      if (!playRes.ok) {
-        return { type: 'iframe', streamUrl: iframeSrc };
+      } catch (e) {
+        console.warn('[AnimeSaturn] Direct embed fetch notice:', e.message);
       }
 
-      const playData = await playRes.json();
-      if (playData && playData.d) {
-        const directVideoUrl = this.decodeSaturnResponse(playData.d, token);
-        console.log(`[AnimeSaturn] Resolved direct video stream URL: ${directVideoUrl}`);
-        return {
-          type: 'direct',
-          streamUrl: directVideoUrl,
-          iframeFallback: iframeSrc
-        };
-      }
-
-      return { type: 'iframe', streamUrl: iframeSrc };
+      return {
+        type: 'saturn_embed',
+        embedUrl: cleanIframeSrc,
+        embedHtml: embedHtml
+      };
     } catch (err) {
       console.error('[AnimeSaturn] resolveStream failed:', err);
       return null;
