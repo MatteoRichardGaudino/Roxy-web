@@ -31,10 +31,16 @@ class SpatialNavigator {
         const dx = Math.abs(e.clientX - lastMouseX);
         const dy = Math.abs(e.clientY - lastMouseY);
         if (dx > 3 || dy > 3) {
+          // Never blur active text input / textarea on mousemove (otherwise virtual keyboard immediately closes!)
+          if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+            return;
+          }
           if (this.currentFocused) {
-            this.currentFocused.classList.remove('focused');
-            this.currentFocused.blur();
-            this.currentFocused = null;
+            if (this.currentFocused.tagName !== 'INPUT' && this.currentFocused.tagName !== 'TEXTAREA') {
+              this.currentFocused.classList.remove('focused');
+              this.currentFocused.blur();
+              this.currentFocused = null;
+            }
           }
         }
       }
@@ -87,8 +93,11 @@ class SpatialNavigator {
     if (!element) return;
 
     if (this.currentFocused && this.currentFocused !== element) {
-      this.currentFocused.classList.remove('focused');
-      this.currentFocused.blur();
+      // Don't blur search input if element is its parent wrapper
+      if (!element.contains(this.currentFocused)) {
+        this.currentFocused.classList.remove('focused');
+        this.currentFocused.blur();
+      }
     }
 
     this.currentFocused = element;
@@ -97,6 +106,18 @@ class SpatialNavigator {
       element.focus({ preventScroll: true });
     } catch (err) {
       element.focus();
+    }
+
+    // If focusing search-input-wrapper, ensure the inner input gets focused to open the TV Virtual Keyboard
+    if (element.classList.contains('search-input-wrapper')) {
+      const input = element.querySelector('#search-input') || element.querySelector('input');
+      if (input && document.activeElement !== input) {
+        try {
+          input.focus({ preventScroll: true });
+        } catch (err) {
+          input.focus();
+        }
+      }
     }
 
     if (scrollIntoView) {
@@ -198,6 +219,15 @@ class SpatialNavigator {
     if (code === CONFIG.KEYS.ENTER) {
       if (this.currentFocused) {
         e.preventDefault();
+        // If focusing search wrapper or input, explicitly focus and trigger keyboard
+        if (this.currentFocused.classList.contains('search-input-wrapper') || this.currentFocused.id === 'search-input') {
+          const input = document.getElementById('search-input');
+          if (input) {
+            input.focus();
+            input.click();
+            return;
+          }
+        }
         // For 'Continua a guardare', pressing OK on remote directly starts playback!
         if (this.currentFocused.classList.contains('continue-card')) {
           const playBtn = this.currentFocused.querySelector('.card-play-indicator');

@@ -943,6 +943,18 @@
   padding: 14px 24px;
   max-width: 800px;
   width: 100%;
+  transition: border-color var(--duration-normal) var(--ease-spring),
+              box-shadow var(--duration-normal) var(--ease-spring),
+              transform var(--duration-normal) var(--ease-spring);
+  cursor: text;
+}
+
+.search-input-wrapper:focus-within,
+.search-input-wrapper.focused,
+.search-input-wrapper:focus {
+  border-color: var(--primary-indigo-light);
+  box-shadow: 0 0 24px var(--primary-indigo-glow);
+  transform: scale(1.02);
 }
 
 .search-input-text {
@@ -953,6 +965,7 @@
   font-size: 1.4rem;
   font-weight: 600;
   outline: none;
+  cursor: text;
 }
 
 .search-results-grid {

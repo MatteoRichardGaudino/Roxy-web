@@ -111,12 +111,15 @@ class RoxyApp {
       this.renderWatchlist();
     } else if (sectionName === 'search') {
       setTimeout(() => {
+        const wrapper = document.querySelector('.search-input-wrapper');
         const input = document.getElementById('search-input');
+        if (wrapper) {
+          window.navigatorInstance.setFocus(wrapper);
+        }
         if (input) {
-          window.navigatorInstance.setFocus(input);
           input.focus();
         }
-      }, 200);
+      }, 150);
       return;
     }
 
@@ -733,8 +736,29 @@ class RoxyApp {
   // Search View
   // =========================================================================
   bindSearchEvents() {
+    const wrapper = document.querySelector('.search-input-wrapper');
     const searchInput = document.getElementById('search-input');
     if (!searchInput) return;
+
+    if (wrapper) {
+      wrapper.addEventListener('click', () => {
+        window.navigatorInstance.setFocus(wrapper);
+        searchInput.focus();
+      });
+    }
+
+    searchInput.addEventListener('focus', () => {
+      if (wrapper) {
+        wrapper.classList.add('focused');
+        window.navigatorInstance.currentFocused = wrapper;
+      }
+    });
+
+    searchInput.addEventListener('blur', () => {
+      if (wrapper) {
+        wrapper.classList.remove('focused');
+      }
+    });
 
     searchInput.addEventListener('input', (e) => {
       const query = e.target.value;
