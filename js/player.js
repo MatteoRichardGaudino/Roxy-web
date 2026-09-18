@@ -29,6 +29,21 @@ const PlayerController = {
 
     // Listen to playback progress and status from iframe JWPlayer
     window.addEventListener('message', (e) => this.handleIframeMessage(e));
+
+    // Listen to window navigation and close events to flush progress
+    window.addEventListener('beforeunload', () => this.flushSessionProgress());
+    window.addEventListener('pagehide', () => this.flushSessionProgress());
+    window.addEventListener('popstate', () => {
+      if (this.isActive) {
+        this.close();
+      }
+    });
+  },
+
+  flushSessionProgress() {
+    if (this.isActive && this.currentItem && this.currentSessionTime > 5) {
+      StorageService.saveWatchProgress(this.currentItem, this.currentSessionTime, this.estimatedDuration || 7200);
+    }
   },
 
   handleIframeMessage(e) {
@@ -190,26 +205,48 @@ const PlayerController = {
     this.isActive = true;
     window.navigatorInstance.setPlayerActive(true);
 
+    try {
+      if (window.history && window.history.pushState) {
+        window.history.pushState({ roxyPlayer: true }, '');
+      }
+    } catch (e) {}
+
     if (item.source === 'animesaturn') {
       this.playSaturn(item, explicitResumeTime);
       return;
     }
 
     const isTv = (item.media_type === 'tv' || !!item.name || (item.number_of_seasons !== undefined));
-    const season = item.season || 1;
-    const episode = item.episode || 1;
+    let season = item.season;
+    let episode = item.episode;
+
+    // If TV show has no explicit season/episode, check saved progress to resume last watched episode
+    if (isTv && (!season || !episode)) {
+      const lastSaved = StorageService.getItemProgress(item.id);
+      if (lastSaved && lastSaved.season && lastSaved.episode) {
+        season = Number(lastSaved.season);
+        episode = Number(lastSaved.episode);
+      } else {
+        season = season || 1;
+        episode = episode || 1;
+      }
+      item.season = season;
+      item.episode = episode;
+    }
 
     // Check for saved resume position if not explicitly passed
     let resumeTime = explicitResumeTime;
     if (resumeTime === null) {
-      const saved = StorageService.getItemProgress(item.id);
+      const saved = StorageService.getItemProgress(item.id, isTv ? season : null, isTv ? episode : null);
       if (saved && saved.currentTime > 5 && saved.progress < 95) {
-        if (!isTv || (saved.season === season && saved.episode === episode)) {
+        if (!isTv || (Number(saved.season) === Number(season) && Number(saved.episode) === Number(episode))) {
           resumeTime = saved.currentTime;
           console.log(`[Roxy Player] Resuming ${item.title || item.name} from saved position: ${resumeTime}s`);
         }
       }
     }
+
+    const resumeSec = Math.floor(resumeTime || 0);
 
     let displayTitle = item.title || item.name || 'Streaming';
     if (isTv) {
@@ -233,7 +270,7 @@ const PlayerController = {
 
     this.container.classList.add('active');
 
-    // Build streaming URL with vixsrc parameters (primaryColor=6366f1, secondaryColor=1e1e2d, lang=it, autoplay=true, canPlayFHD=1)
+    // Build streaming URL with vixsrc parameters
     let streamUrl = customStreamUrl;
     if (!streamUrl) {
       if (isTv) {
@@ -246,7 +283,13 @@ const PlayerController = {
       }
     }
 
-    console.log(`[Roxy Player] Opening VixSrc stream for: ${item.title || item.name} (isTv: ${isTv}, resume: ${resumeTime || 0}s)`);
+    // Append startAt parameters so VixSrc embedded player seeks to the exact second
+    if (resumeSec > 5) {
+      const sep = streamUrl.includes('?') ? '&' : '?';
+      streamUrl += `${sep}startAt=${resumeSec}&t=${resumeSec}`;
+    }
+
+    console.log(`[Roxy Player] Opening VixSrc stream for: ${item.title || item.name} (isTv: ${isTv}, resume: ${resumeSec}s)`);
 
     const osdBottom = this.osd ? this.osd.querySelector('.osd-bottom') : null;
 
@@ -264,7 +307,7 @@ const PlayerController = {
       this.iframeEl.setAttribute('referrerpolicy', 'no-referrer');
 
       // Load direct JWPlayer embed via API on webOS, or direct no-referrer embed on Web browser
-      this.loadDirectCleanEmbed(item, isTv, season, episode, streamUrl, resumeTime);
+      this.loadDirectCleanEmbed(item, isTv, season, episode, streamUrl, resumeSec);
       
       // Configure non-blocking OSD in iframe mode
       if (this.osd) this.osd.classList.add('iframe-mode');
@@ -274,9 +317,18 @@ const PlayerController = {
       this.iframeEl.style.display = 'none';
       this.videoEl.style.display = 'block';
       this.videoEl.src = streamUrl;
-      if (resumeTime && resumeTime > 0) {
-        this.videoEl.currentTime = resumeTime;
+
+      if (resumeSec > 5) {
+        const seekOnce = () => {
+          try {
+            this.videoEl.currentTime = resumeSec;
+            console.log(`[Roxy Player] Native video resumed at: ${resumeSec}s`);
+          } catch(e) {}
+        };
+        this.videoEl.addEventListener('loadedmetadata', seekOnce, { once: true });
+        this.videoEl.addEventListener('canplay', seekOnce, { once: true });
       }
+
       this.videoEl.play().catch(e => console.warn('Autoplay prevented:', e));
       if (osdBottom) osdBottom.style.display = 'flex';
     }
@@ -294,7 +346,7 @@ const PlayerController = {
     }
 
     // Initialize session ticker for robust web & TV progress tracking
-    this.currentSessionTime = resumeTime || 0;
+    this.currentSessionTime = resumeSec;
     this.estimatedDuration = isTv ? 2700 : 7200;
     this.tickCount = 0;
 
@@ -304,7 +356,7 @@ const PlayerController = {
     }
 
     this.sessionTicker = setInterval(() => {
-      if (this.isActive && this.isPlaying && this.currentItem) {
+      if (this.isActive && this.currentItem) {
         this.currentSessionTime += 1;
         this.tickCount += 1;
         if (this.tickCount % 5 === 0) {
@@ -318,7 +370,7 @@ const PlayerController = {
       ...item,
       season: isTv ? season : undefined,
       episode: isTv ? episode : undefined
-    }, resumeTime || 0, this.estimatedDuration);
+    }, resumeSec, this.estimatedDuration);
   },
 
   async playSaturn(item, explicitResumeTime = null) {
@@ -327,12 +379,14 @@ const PlayerController = {
 
     let resumeTime = explicitResumeTime;
     if (resumeTime === null) {
-      const saved = StorageService.getItemProgress(item.id);
-      if (saved && saved.currentTime > 5 && saved.progress < 95 && saved.episode === epNum) {
+      const saved = StorageService.getItemProgress(item.id, 1, epNum);
+      if (saved && saved.currentTime > 5 && saved.progress < 95 && Number(saved.episode) === Number(epNum)) {
         resumeTime = saved.currentTime;
         console.log(`[Roxy Player] Resuming Anime ${item.title || item.name} Ep ${epNum} from: ${resumeTime}s`);
       }
     }
+
+    const resumeSec = Math.floor(resumeTime || 0);
 
     const cleanTitle = (item.title || item.name || 'Anime').replace(/\s*\((ITA|SUB|SUB ITA)\)\s*/gi, '').trim();
     const subLabel = item.isDub ? 'DUB ITA' : 'SUB ITA';
@@ -359,8 +413,15 @@ const PlayerController = {
         this.videoEl.style.display = 'block';
         this.videoEl.src = res.streamUrl;
 
-        if (resumeTime && resumeTime > 0) {
-          this.videoEl.currentTime = resumeTime;
+        if (resumeSec > 5) {
+          const seekOnce = () => {
+            try {
+              this.videoEl.currentTime = resumeSec;
+              console.log(`[Roxy Player] Saturn video element resumed at: ${resumeSec}s`);
+            } catch(e) {}
+          };
+          this.videoEl.addEventListener('loadedmetadata', seekOnce, { once: true });
+          this.videoEl.addEventListener('canplay', seekOnce, { once: true });
         }
 
         this.videoEl.play().catch(e => console.warn('Saturn direct autoplay notice:', e));
@@ -390,7 +451,7 @@ const PlayerController = {
     }
 
     // Initialize session ticker for anime playback
-    this.currentSessionTime = resumeTime || 0;
+    this.currentSessionTime = resumeSec;
     this.estimatedDuration = 1440; // 24m standard anime
     this.tickCount = 0;
 
@@ -400,7 +461,7 @@ const PlayerController = {
     }
 
     this.sessionTicker = setInterval(() => {
-      if (this.isActive && this.isPlaying && this.currentItem) {
+      if (this.isActive && this.currentItem) {
         this.currentSessionTime += 1;
         this.tickCount += 1;
         if (this.tickCount % 5 === 0) {
@@ -417,7 +478,7 @@ const PlayerController = {
       media_type: 'anime',
       season: 1,
       episode: epNum
-    }, resumeTime || 0, this.estimatedDuration);
+    }, resumeSec, this.estimatedDuration);
   },
 
   async loadDirectCleanSaturnEmbed(item, embedUrl, initialEmbedHtml = null, resumeTime = 0) {
@@ -692,12 +753,17 @@ const PlayerController = {
     `;
 
     // If not running on webOS, browser CORS blocks fetch to vixsrc.to/api.
-    // Instead of failing or getting stuck, directly embed the URL with no-referrer
+    // Directly embed the URL with startAt and no-referrer
     if (!window.WebOSBridge || !window.WebOSBridge.isWebOS) {
-      console.log('[Roxy Player] Web browser environment: loading direct no-referrer embed URL:', fallbackUrl);
+      let finalEmbedUrl = fallbackUrl;
+      if (resumeSec > 5 && !finalEmbedUrl.includes('startAt=')) {
+        const sep = finalEmbedUrl.includes('?') ? '&' : '?';
+        finalEmbedUrl += `${sep}startAt=${resumeSec}&t=${resumeSec}`;
+      }
+      console.log('[Roxy Player] Web browser environment: loading direct no-referrer embed URL:', finalEmbedUrl);
       this.iframeEl.removeAttribute('srcdoc');
       this.iframeEl.setAttribute('referrerpolicy', 'no-referrer');
-      this.iframeEl.src = fallbackUrl;
+      this.iframeEl.src = finalEmbedUrl;
       this.iframeEl.onload = () => {
         setTimeout(() => this.hideLoadingCurtain(), 1200);
       };
@@ -710,8 +776,8 @@ const PlayerController = {
         ? CONFIG.STREAM_PROVIDERS.VIXSRC_API_TV.replace('{id}', item.id).replace('{season}', season).replace('{episode}', episode)
         : CONFIG.STREAM_PROVIDERS.VIXSRC_API_MOVIE.replace('{id}', item.id);
 
-      if (resumeSec > 0) {
-        apiUrl += `&startAt=${resumeSec}`;
+      if (resumeSec > 5) {
+        apiUrl += `&startAt=${resumeSec}&t=${resumeSec}`;
       }
 
       console.log(`[Roxy Player] Resolving direct stream from API: ${apiUrl}`);

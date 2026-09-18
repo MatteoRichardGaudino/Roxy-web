@@ -41,20 +41,32 @@ const StorageService = {
     }
   },
 
-  getItemProgress(id) {
+  getItemProgress(id, season = null, episode = null) {
     try {
       if (!id) return null;
-      // 1. Check persistent playback positions cache (persists even if hidden from continue watching)
+      const mediaId = String(id);
+      
+      // 1. Check persistent playback positions cache
       const positionsData = localStorage.getItem(this.getUserKey(this.KEYS.PLAYBACK_POSITIONS));
       if (positionsData) {
         const positions = JSON.parse(positionsData);
-        if (positions && positions[String(id)]) {
-          return positions[String(id)];
+        if (season !== null && episode !== null && positions[`${mediaId}_s${season}_e${episode}`]) {
+          return positions[`${mediaId}_s${season}_e${episode}`];
+        }
+        if (positions[mediaId]) {
+          const p = positions[mediaId];
+          if (season === null && episode === null) return p;
+          if (p.season === season && p.episode === episode) return p;
         }
       }
+
       // 2. Fallback to Continue Watching array
       const list = this.getContinueWatching();
-      return list.find(i => String(i.id) === String(id)) || null;
+      if (season !== null && episode !== null) {
+        const epMatch = list.find(i => String(i.id) === mediaId && Number(i.season) === Number(season) && Number(i.episode) === Number(episode));
+        if (epMatch) return epMatch;
+      }
+      return list.find(i => String(i.id) === mediaId) || null;
     } catch (e) {
       return null;
     }
@@ -71,8 +83,8 @@ const StorageService = {
       const finalCurrentTime = Math.max(0, Math.floor(currentTime || 0));
       const progressPercent = Math.min(100, Math.round((finalCurrentTime / finalDuration) * 100));
 
-      const season = isTv ? (item.season || 1) : undefined;
-      const episode = isTv ? (item.episode || 1) : undefined;
+      const season = isTv ? (Number(item.season) || 1) : undefined;
+      const episode = isTv ? (Number(item.episode) || 1) : undefined;
 
       const record = {
         id: item.id,
@@ -92,11 +104,14 @@ const StorageService = {
         updatedAt: Date.now()
       };
 
-      // Always persist exact playback time in positions dictionary
+      // Always persist exact playback time in positions dictionary (both overall show & episode-specific)
       try {
         const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
         const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
         positions[mediaId] = record;
+        if (isTv && season && episode) {
+          positions[`${mediaId}_s${season}_e${episode}`] = record;
+        }
         localStorage.setItem(positionsKey, JSON.stringify(positions));
       } catch (err) {}
 

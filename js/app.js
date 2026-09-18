@@ -833,6 +833,8 @@ class RoxyApp {
               const sNum = parseInt(epCard.getAttribute('data-season'));
               const eNum = parseInt(epCard.getAttribute('data-episode'));
               const epData = episodes.find(e => e.episode_number === eNum);
+              const epSaved = StorageService.getItemProgress(data.id, sNum, eNum);
+              const epResumeSec = (epSaved && epSaved.currentTime > 5 && epSaved.progress < 95) ? epSaved.currentTime : null;
               this.closeModal();
               PlayerController.play({
                 ...data,
@@ -840,7 +842,7 @@ class RoxyApp {
                 season: sNum,
                 episode: eNum,
                 episode_name: epData ? epData.name : ''
-              });
+              }, null, epResumeSec);
             });
           });
         };
@@ -863,14 +865,38 @@ class RoxyApp {
       }
     }
 
-    // Modal Action Buttons (Handle Available / Unavailable State)
+    // Modal Action Buttons (Handle Available / Unavailable State & Smart Resume)
     if (btnPlay) {
       if (isAvailable) {
         btnPlay.className = 'btn-primary-play navigable';
-        btnPlay.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> ${isSaturn ? 'Riproduci Ep. 1' : 'Riproduci'}`;
+        
+        const isTv = (data.media_type === 'tv' || isSaturn || !!data.name || (data.number_of_seasons !== undefined));
+        const savedProgress = StorageService.getItemProgress(data.id);
+        
+        let playBtnLabel = isSaturn ? 'Riproduci Ep. 1' : 'Riproduci';
+        let playPayload = isSaturn ? { ...data, episode: 1 } : data;
+        let playResumeTime = null;
+
+        if (savedProgress && savedProgress.currentTime > 5 && savedProgress.progress < 95) {
+          const currentMins = Math.floor(savedProgress.currentTime / 60);
+          playResumeTime = savedProgress.currentTime;
+
+          if (isSaturn) {
+            playBtnLabel = `Riprendi Ep. ${savedProgress.episode || 1} (${currentMins}m)`;
+            playPayload = { ...data, episode: savedProgress.episode || 1 };
+          } else if (isTv) {
+            playBtnLabel = `Riprendi S${savedProgress.season || 1}:E${savedProgress.episode || 1} (${currentMins}m)`;
+            playPayload = { ...data, media_type: 'tv', season: savedProgress.season || 1, episode: savedProgress.episode || 1 };
+          } else {
+            playBtnLabel = `Riprendi da ${currentMins}m`;
+            playPayload = data;
+          }
+        }
+
+        btnPlay.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> ${playBtnLabel}`;
         btnPlay.onclick = () => {
           this.closeModal();
-          PlayerController.play(isSaturn ? { ...data, episode: 1 } : data);
+          PlayerController.play(playPayload, null, playResumeTime);
         };
       } else {
         btnPlay.className = 'btn-unavailable navigable';
