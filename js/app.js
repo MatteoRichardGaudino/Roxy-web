@@ -386,14 +386,22 @@ class RoxyApp {
       </div>
     `;
 
-    // Attach click events to resume exact position
+    // Attach click events: Play button starts playback directly, clicking the card body opens details modal
     container.querySelectorAll('.continue-card').forEach(card => {
       const id = parseInt(card.getAttribute('data-id'));
       const item = list.find(i => i.id === id);
       if (item) {
+        const playBtn = card.querySelector('.card-play-indicator');
+        if (playBtn) {
+          playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.lastFocusedElement = card;
+            PlayerController.play(item, null, item.currentTime || 0);
+          });
+        }
         card.addEventListener('click', () => {
           this.lastFocusedElement = card;
-          PlayerController.play(item, null, item.currentTime || 0);
+          this.openDetailsModal(item);
         });
       }
     });
@@ -444,11 +452,23 @@ class RoxyApp {
 
     parent.appendChild(row);
 
-    // Attach click listeners to cards to open the modal
+    // Attach click listeners: play button starts playback, card body opens details modal
     row.querySelectorAll('.media-card').forEach(card => {
       const id = parseInt(card.getAttribute('data-id'));
       const item = items.find(i => i.id === id);
       if (item) {
+        const playBtn = card.querySelector('.card-play-indicator');
+        if (playBtn) {
+          playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!CatalogService.isItemAvailable(item)) {
+              this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
+              return;
+            }
+            this.lastFocusedElement = card;
+            PlayerController.play(item);
+          });
+        }
         card.addEventListener('click', () => {
           this.lastFocusedElement = card;
           this.openDetailsModal(item);
@@ -748,6 +768,18 @@ class RoxyApp {
       const id = parseInt(card.getAttribute('data-id'));
       const item = results.find(i => i.id === id);
       if (item) {
+        const playBtn = card.querySelector('.card-play-indicator');
+        if (playBtn) {
+          playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!CatalogService.isItemAvailable(item)) {
+              this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
+              return;
+            }
+            this.lastFocusedElement = card;
+            PlayerController.play(item);
+          });
+        }
         card.addEventListener('click', () => {
           this.lastFocusedElement = card;
           this.openDetailsModal(item);
@@ -803,6 +835,18 @@ class RoxyApp {
       const id = parseInt(card.getAttribute('data-id'));
       const item = list.find(i => i.id === id);
       if (item) {
+        const playBtn = card.querySelector('.card-play-indicator');
+        if (playBtn) {
+          playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!CatalogService.isItemAvailable(item)) {
+              this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
+              return;
+            }
+            this.lastFocusedElement = card;
+            PlayerController.play(item);
+          });
+        }
         card.addEventListener('click', () => {
           this.lastFocusedElement = card;
           this.openDetailsModal(item);

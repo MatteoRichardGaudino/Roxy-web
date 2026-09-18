@@ -22,6 +22,25 @@ class SpatialNavigator {
         this.setFocus(navigable, false);
       }
     });
+
+    // Deselect keyboard/D-pad focus when Magic Remote cursor / Mouse moves
+    let lastMouseX = -1;
+    let lastMouseY = -1;
+    window.addEventListener('mousemove', (e) => {
+      if (lastMouseX !== -1 && lastMouseY !== -1) {
+        const dx = Math.abs(e.clientX - lastMouseX);
+        const dy = Math.abs(e.clientY - lastMouseY);
+        if (dx > 3 || dy > 3) {
+          if (this.currentFocused) {
+            this.currentFocused.classList.remove('focused');
+            this.currentFocused.blur();
+            this.currentFocused = null;
+          }
+        }
+      }
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+    });
   }
 
   setModal(isOpen, container = null) {
@@ -86,7 +105,35 @@ class SpatialNavigator {
   }
 
   ensureVisible(element) {
-    // Horizontal row carousel smooth auto-scroll
+    // 1. Modal Dialog internal scrolling (episodes list & season tabs)
+    if (this.isModalOpen && this.modalContainer) {
+      // Horizontal season tabs smooth scroll
+      const seasonsBar = element.closest('.seasons-bar');
+      if (seasonsBar) {
+        const barRect = seasonsBar.getBoundingClientRect();
+        const elRect = element.getBoundingClientRect();
+        const offset = (elRect.left + elRect.width / 2) - (barRect.left + barRect.width / 2);
+        if (Math.abs(offset) > 4) {
+          seasonsBar.scrollBy({ left: offset, behavior: 'smooth' });
+        }
+      }
+
+      // Vertical modal body content smooth scroll
+      const modalBody = this.modalContainer.querySelector('.modal-body-content') || this.modalContainer;
+      if (modalBody) {
+        const bodyRect = modalBody.getBoundingClientRect();
+        const elRect = element.getBoundingClientRect();
+
+        if (elRect.top < bodyRect.top + 30) {
+          modalBody.scrollBy({ top: elRect.top - bodyRect.top - 50, behavior: 'smooth' });
+        } else if (elRect.bottom > bodyRect.bottom - 30) {
+          modalBody.scrollBy({ top: elRect.bottom - bodyRect.bottom + 50, behavior: 'smooth' });
+        }
+      }
+      return;
+    }
+
+    // 2. Horizontal row carousel smooth auto-scroll
     const carousel = element.closest('.row-carousel');
     if (carousel) {
       const carouselRect = carousel.getBoundingClientRect();
@@ -97,7 +144,7 @@ class SpatialNavigator {
       }
     }
 
-    // Vertical viewport smooth row-to-row animated scrolling
+    // 3. Vertical main viewport smooth row-to-row animated scrolling
     const viewContainer = document.querySelector('.view-container');
     if (viewContainer && !this.isModalOpen && !this.isPlayerActive) {
       const viewRect = viewContainer.getBoundingClientRect();
@@ -151,6 +198,15 @@ class SpatialNavigator {
     if (code === CONFIG.KEYS.ENTER) {
       if (this.currentFocused) {
         e.preventDefault();
+        // For 'Continua a guardare', pressing OK on remote directly starts playback!
+        if (this.currentFocused.classList.contains('continue-card')) {
+          const playBtn = this.currentFocused.querySelector('.card-play-indicator');
+          if (playBtn) {
+            playBtn.click();
+            return;
+          }
+        }
+        // Default behavior: click card or button (e.g. opens description modal for regular media cards)
         this.currentFocused.click();
       }
       return;
@@ -180,16 +236,26 @@ class SpatialNavigator {
 
     const currentCarousel = this.currentFocused.closest('.row-carousel');
 
-    // 1. Horizontal carousel left/right fast stepping
+    // 1. Horizontal carousel left/right fast stepping with wrap-around
     if (currentCarousel && (direction === 'left' || direction === 'right')) {
       const items = Array.from(currentCarousel.querySelectorAll('.navigable'));
       const currentIndex = items.indexOf(this.currentFocused);
-      if (direction === 'right' && currentIndex < items.length - 1) {
-        this.setFocus(items[currentIndex + 1]);
+      if (direction === 'right') {
+        if (currentIndex < items.length - 1) {
+          this.setFocus(items[currentIndex + 1]);
+        } else {
+          // Wrap around to first element of the row when finishing on the right!
+          this.setFocus(items[0]);
+        }
         return;
-      } else if (direction === 'left' && currentIndex > 0) {
-        this.setFocus(items[currentIndex - 1]);
-        return;
+      } else if (direction === 'left') {
+        if (currentIndex > 0) {
+          this.setFocus(items[currentIndex - 1]);
+          return;
+        } else {
+          // Stay on first item of row when pressing left at start
+          return;
+        }
       }
     }
 
