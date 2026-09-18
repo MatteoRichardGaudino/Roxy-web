@@ -18,6 +18,8 @@ const PlayerController = {
     this.timeCurrentEl = document.getElementById('osd-time-current');
     this.timeDurationEl = document.getElementById('osd-time-duration');
     this.progressBar = document.getElementById('osd-progress-filled');
+    this.loadingCurtain = document.getElementById('player-loading-curtain');
+    this.loadingTitle = document.getElementById('player-loading-title');
 
     this.bindEvents();
 
@@ -34,17 +36,30 @@ const PlayerController = {
     if (e.data && e.data.type === 'ROXY_PLAYBACK_PROGRESS') {
       currentTime = e.data.currentTime;
       duration = e.data.duration;
+      this.hideLoadingCurtain();
     } else if (e.data && e.data.type === 'PLAYER_EVENT') {
       const data = e.data.data;
-      if (data && (data.event === 'timeupdate' || data.event === 'seeked' || data.event === 'pause')) {
+      if (data && (data.event === 'timeupdate' || data.event === 'seeked' || data.event === 'pause' || data.event === 'play')) {
         currentTime = data.currentTime;
         duration = data.duration;
+        this.hideLoadingCurtain();
       }
     }
 
     if (currentTime !== null && duration !== null && duration > 0) {
       StorageService.saveWatchProgress(this.currentItem, currentTime, duration);
       this.updateProgressDisplay(currentTime, duration);
+    }
+  },
+
+  hideLoadingCurtain() {
+    if (this.loadingCurtain && !this.loadingCurtain.classList.contains('fade-out')) {
+      this.loadingCurtain.classList.add('fade-out');
+      setTimeout(() => {
+        if (this.loadingCurtain && this.loadingCurtain.classList.contains('fade-out')) {
+          this.loadingCurtain.style.display = 'none';
+        }
+      }, 650);
     }
   },
 
@@ -84,6 +99,7 @@ const PlayerController = {
 
     // Video events
     if (this.videoEl) {
+      this.videoEl.addEventListener('playing', () => this.hideLoadingCurtain());
       this.videoEl.addEventListener('timeupdate', () => this.onTimeUpdate());
       this.videoEl.addEventListener('ended', () => this.onEnded());
     }
@@ -125,6 +141,14 @@ const PlayerController = {
 
     if (this.titleEl) {
       this.titleEl.textContent = displayTitle;
+    }
+
+    if (this.loadingCurtain) {
+      this.loadingCurtain.classList.remove('fade-out');
+      this.loadingCurtain.style.display = 'flex';
+    }
+    if (this.loadingTitle) {
+      this.loadingTitle.textContent = displayTitle;
     }
 
     this.container.classList.add('active');
@@ -543,6 +567,11 @@ const PlayerController = {
     this.container.classList.remove('active');
     this.isActive = false;
     window.navigatorInstance.setPlayerActive(false);
+
+    if (this.loadingCurtain) {
+      this.loadingCurtain.classList.remove('fade-out');
+      this.loadingCurtain.style.display = 'none';
+    }
 
     if (this.osdTimeout) {
       clearTimeout(this.osdTimeout);

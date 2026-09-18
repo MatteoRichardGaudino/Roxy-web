@@ -153,6 +153,17 @@
          Integrated Video Player Overlay
          ==================================================================== -->
     <div id="player-view" class="player-container">
+      <!-- Cinematic Playback Start & Loading Transition -->
+      <div id="player-loading-curtain" class="player-loading-curtain">
+        <div class="player-curtain-content">
+          <div class="player-loading-spinner-ring">
+            <div class="spinner-core"></div>
+          </div>
+          <div id="player-loading-title" class="player-loading-title">Avvio riproduzione...</div>
+          <div class="player-loading-sub">Configurazione streaming 1080p OLED</div>
+        </div>
+      </div>
+
       <video id="native-video-player" class="video-player-element" style="display: none;" playsinline></video>
       <iframe id="stream-iframe-player" class="video-frame" 
         allow="fullscreen; autoplay; encrypted-media; picture-in-picture; clipboard-write" 

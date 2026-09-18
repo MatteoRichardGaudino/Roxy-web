@@ -74,7 +74,11 @@ class SpatialNavigator {
 
     this.currentFocused = element;
     element.classList.add('focused');
-    element.focus();
+    try {
+      element.focus({ preventScroll: true });
+    } catch (err) {
+      element.focus();
+    }
 
     if (scrollIntoView) {
       this.ensureVisible(element);
@@ -82,25 +86,45 @@ class SpatialNavigator {
   }
 
   ensureVisible(element) {
-    // Horizontal row carousel auto-scroll
+    // Horizontal row carousel smooth auto-scroll
     const carousel = element.closest('.row-carousel');
     if (carousel) {
       const carouselRect = carousel.getBoundingClientRect();
       const elRect = element.getBoundingClientRect();
       const offset = (elRect.left + elRect.width / 2) - (carouselRect.left + carouselRect.width / 2);
-      carousel.scrollBy({ left: offset, behavior: 'smooth' });
+      if (Math.abs(offset) > 4) {
+        carousel.scrollBy({ left: offset, behavior: 'smooth' });
+      }
     }
 
-    // Vertical viewport auto-scroll
+    // Vertical viewport smooth row-to-row animated scrolling
     const viewContainer = document.querySelector('.view-container');
     if (viewContainer && !this.isModalOpen && !this.isPlayerActive) {
       const viewRect = viewContainer.getBoundingClientRect();
-      const elRect = element.getBoundingClientRect();
 
-      if (elRect.top < viewRect.top + 100) {
-        viewContainer.scrollBy({ top: elRect.top - viewRect.top - 120, behavior: 'smooth' });
-      } else if (elRect.bottom > viewRect.bottom - 100) {
-        viewContainer.scrollBy({ top: elRect.bottom - viewRect.bottom + 120, behavior: 'smooth' });
+      // If focusing the top navigation bar or hero billboard
+      if (element.closest('.top-header') || element.closest('.hero-billboard')) {
+        if (viewContainer.scrollTop > 0) {
+          viewContainer.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        return;
+      }
+
+      const contentRow = element.closest('.content-row');
+      if (contentRow) {
+        const rowRect = contentRow.getBoundingClientRect();
+        // Position the target row with 105px clearance below the top header
+        const targetScrollOffset = rowRect.top - viewRect.top - 105;
+        if (Math.abs(targetScrollOffset) > 8) {
+          viewContainer.scrollBy({ top: targetScrollOffset, behavior: 'smooth' });
+        }
+      } else {
+        const elRect = element.getBoundingClientRect();
+        if (elRect.top < viewRect.top + 100) {
+          viewContainer.scrollBy({ top: elRect.top - viewRect.top - 120, behavior: 'smooth' });
+        } else if (elRect.bottom > viewRect.bottom - 100) {
+          viewContainer.scrollBy({ top: elRect.bottom - viewRect.bottom + 120, behavior: 'smooth' });
+        }
       }
     }
   }
