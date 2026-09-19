@@ -334,7 +334,7 @@ const SupabaseService = {
 
     const mediaId = String(item.id);
     const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
-    const isTv = (item.media_type === 'tv' || isSaturn || !!item.name || (item.number_of_seasons !== undefined));
+    const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
     
     // Movies strictly use season 0, episode 0 to avoid duplicate rows
     const season = isTv ? (Number(item.season) || 1) : 0;
@@ -360,6 +360,8 @@ const SupabaseService = {
       progress: Math.round(progress * 10) / 10,
       is_dub: !!item.isDub,
       is_hidden: false,
+      is_dropped: typeof StorageService !== 'undefined' && typeof StorageService.isDropped === 'function' ? StorageService.isDropped(mediaId) : false,
+      community_hidden: typeof StorageService !== 'undefined' && typeof StorageService.isCommunityHidden === 'function' ? StorageService.isCommunityHidden(mediaId) : false,
       slug: item.slug || '',
       updated_at: new Date().toISOString()
     };
@@ -373,6 +375,104 @@ const SupabaseService = {
       });
     } catch (e) {
       console.warn('[SupabaseService] Cloud progress sync notice:', e.message);
+    }
+  },
+
+  async setMediaDropped(mediaId, isDropped, mediaData = null) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !mediaId) return;
+
+    try {
+      const res = await this.restRequest(`watch_progress?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}`, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=representation' },
+        body: JSON.stringify({
+          is_dropped: !!isDropped,
+          is_hidden: !!isDropped, // Dropped items hidden from continue watching
+          updated_at: new Date().toISOString()
+        })
+      });
+
+      // If no existing row was updated and mediaData is provided, insert a watch_progress record
+      if ((!res || res.length === 0) && mediaData) {
+        const isSaturn = (mediaData.source === 'animesaturn' || String(mediaId).startsWith('saturn_'));
+        const isTv = !isSaturn && (mediaData.media_type === 'tv' || (mediaData.media_type !== 'movie' && (mediaData.number_of_seasons !== undefined || (!!mediaData.name && !mediaData.title))));
+        await this.restRequest('watch_progress?on_conflict=user_id,media_id,season,episode', {
+          method: 'POST',
+          headers: { 'Prefer': 'resolution=merge-duplicates' },
+          body: JSON.stringify({
+            user_id: user.id,
+            media_id: String(mediaId),
+            source: mediaData.source || (isSaturn ? 'animesaturn' : 'tmdb'),
+            media_type: mediaData.media_type || (isSaturn ? 'anime' : (isTv ? 'tv' : 'movie')),
+            title: mediaData.title || mediaData.name || 'Streaming',
+            poster_path: mediaData.poster_path || '',
+            backdrop_path: mediaData.backdrop_path || '',
+            season: isTv ? (Number(mediaData.season) || 1) : 0,
+            episode: isTv ? (Number(mediaData.episode) || 1) : 0,
+            playback_time: 1,
+            duration: 100,
+            progress: 1,
+            is_hidden: true,
+            is_dropped: !!isDropped,
+            community_hidden: typeof StorageService !== 'undefined' && typeof StorageService.isCommunityHidden === 'function' ? StorageService.isCommunityHidden(mediaId) : false,
+            slug: mediaData.slug || '',
+            updated_at: new Date().toISOString()
+          })
+        });
+      }
+
+      // Refresh memory cache
+      await this.loadGlobalSocialActivity();
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to set dropped status:', e);
+    }
+  },
+
+  async isMediaDropped(mediaId) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !mediaId) return false;
+
+    try {
+      const rows = await this.restRequest(`watch_progress?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}&select=is_dropped&limit=1`);
+      if (Array.isArray(rows) && rows.length > 0) {
+        return !!rows[0].is_dropped;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  async setMediaCommunityHidden(mediaId, isHidden) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !mediaId) return;
+
+    try {
+      await this.restRequest(`watch_progress?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          community_hidden: !!isHidden,
+          updated_at: new Date().toISOString()
+        })
+      });
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to set community hidden status:', e);
+    }
+  },
+
+  async isMediaCommunityHidden(mediaId) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !mediaId) return false;
+
+    try {
+      const rows = await this.restRequest(`watch_progress?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}&select=community_hidden&limit=1`);
+      if (Array.isArray(rows) && rows.length > 0) {
+        return !!rows[0].community_hidden;
+      }
+      return false;
+    } catch (e) {
+      return false;
     }
   },
 
@@ -407,19 +507,28 @@ const SupabaseService = {
 
       for (const r of rows) {
         const key = String(r.media_id);
+        if (r.is_dropped === true) {
+          if (typeof StorageService !== 'undefined' && typeof StorageService.setMediaDropped === 'function') {
+            StorageService.setMediaDropped(r.media_id, true);
+          }
+          continue;
+        }
+        if (r.community_hidden === true && typeof StorageService !== 'undefined' && typeof StorageService.setCommunityHidden === 'function') {
+          StorageService.setCommunityHidden(r.media_id, true);
+        }
         if (seen.has(key)) continue;
         seen.add(key);
 
         uniqueList.push({
           id: r.media_id,
           source: r.source,
-          media_type: r.media_type,
+          media_type: r.media_type || 'movie',
           title: r.title,
-          name: r.title,
+          name: (r.media_type === 'tv') ? r.title : undefined,
           poster_path: r.poster_path,
           backdrop_path: r.backdrop_path,
-          season: r.season > 0 ? r.season : undefined,
-          episode: r.episode > 0 ? r.episode : undefined,
+          season: (r.media_type === 'tv' || r.media_type === 'anime') && r.season > 0 ? r.season : undefined,
+          episode: (r.media_type === 'tv' || r.media_type === 'anime') && r.episode > 0 ? r.episode : undefined,
           episode_name: r.episode_name,
           currentTime: Number(r.playback_time),
           duration: Number(r.duration),
@@ -529,6 +638,392 @@ const SupabaseService = {
       });
     } catch (e) {
       // Metric errors are silent
+    }
+  },
+
+  // =========================================================================
+  // Social Community & Comments System
+  // =========================================================================
+  async addComment(item, text) {
+    const user = this.getActiveUser();
+    if (!user || !user.id) throw new Error('Accedi con il tuo profilo per lasciare un commento.');
+    const cleanText = String(text || '').trim();
+    if (!cleanText) throw new Error('Il testo del commento non può essere vuoto.');
+
+    const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+    const isTv = (item.media_type === 'tv' || (item.name && !item.title));
+    const title = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title || item.name) || item.title || item.name) : (item.title || item.name);
+
+    const payload = {
+      user_id: user.id,
+      username: user.username,
+      avatar_emoji: user.avatar_emoji || '🍿',
+      avatar_url: user.avatar_url || null,
+      media_id: String(item.id),
+      media_type: item.media_type || (isSaturn ? 'anime' : (isTv ? 'tv' : 'movie')),
+      source: item.source || (isSaturn ? 'animesaturn' : 'tmdb'),
+      title: title || 'Streaming',
+      poster_path: item.poster_path || '',
+      backdrop_path: item.backdrop_path || '',
+      slug: item.slug || '',
+      comment_type: 'comment',
+      comment_text: cleanText,
+      created_at: new Date().toISOString()
+    };
+
+    const result = await this.restRequest('comments', {
+      method: 'POST',
+      headers: { 'Prefer': 'return=representation' },
+      body: JSON.stringify(payload)
+    });
+
+    this.logMetric('post_comment', item.id);
+    return Array.isArray(result) ? result[0] : result;
+  },
+
+  async deleteComment(commentId) {
+    const user = this.getActiveUser();
+    if (!user || !user.id) {
+      throw new Error('Devi aver effettuato l\'accesso per eliminare un commento.');
+    }
+    if (!commentId) return;
+
+    await this.restRequest(`comments?id=eq.${encodeURIComponent(String(commentId))}&user_id=eq.${user.id}`, {
+      method: 'DELETE'
+    });
+
+    this.logMetric('delete_comment', null, { comment_id: commentId });
+    return true;
+  },
+
+  async toggleRecommendation(item) {
+    const user = this.getActiveUser();
+    if (!user || !user.id) throw new Error('Accedi con il tuo profilo per consigliare un contenuto.');
+
+    const mediaId = String(item.id);
+    // Check if user already recommended this title
+    const existing = await this.restRequest(`comments?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(mediaId)}&comment_type=eq.recommendation&select=id`);
+
+    if (Array.isArray(existing) && existing.length > 0) {
+      // Remove recommendation
+      await this.restRequest(`comments?id=eq.${existing[0].id}`, {
+        method: 'DELETE'
+      });
+      return { recommended: false };
+    } else {
+      // Add recommendation
+      const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+      const isTv = (item.media_type === 'tv' || (item.name && !item.title));
+      const title = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title || item.name) || item.title || item.name) : (item.title || item.name);
+
+      const payload = {
+        user_id: user.id,
+        username: user.username,
+        avatar_emoji: user.avatar_emoji || '🍿',
+        avatar_url: user.avatar_url || null,
+        media_id: mediaId,
+        media_type: item.media_type || (isSaturn ? 'anime' : (isTv ? 'tv' : 'movie')),
+        source: item.source || (isSaturn ? 'animesaturn' : 'tmdb'),
+        title: title || 'Streaming',
+        poster_path: item.poster_path || '',
+        backdrop_path: item.backdrop_path || '',
+        slug: item.slug || '',
+        comment_type: 'recommendation',
+        comment_text: 'Consiglia di vedere assolutamente questo contenuto!',
+        created_at: new Date().toISOString()
+      };
+
+      await this.restRequest('comments', {
+        method: 'POST',
+        headers: { 'Prefer': 'return=representation' },
+        body: JSON.stringify(payload)
+      });
+
+      this.logMetric('recommend_media', mediaId);
+      return { recommended: true };
+    }
+  },
+
+  async hasUserRecommended(mediaId) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !mediaId) return false;
+
+    try {
+      const rows = await this.restRequest(`comments?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}&comment_type=eq.recommendation&select=id&limit=1`);
+      return Array.isArray(rows) && rows.length > 0;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  async getCommentsForMedia(mediaId) {
+    if (!mediaId) return [];
+    try {
+      const rows = await this.restRequest(`comments?media_id=eq.${encodeURIComponent(String(mediaId))}&order=created_at.desc&limit=50`);
+      return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+      console.warn('[SupabaseService] Error loading comments for media:', e);
+      return [];
+    }
+  },
+
+  // Social Activity Cache: mediaId -> Array<{ userId, username, avatar_emoji, avatar_url, status: 'watching' | 'completed', progress, updatedAt }>
+  socialActivityMap: new Map(),
+
+  async loadGlobalSocialActivity() {
+    try {
+      const [rows, profiles] = await Promise.all([
+        this.restRequest('watch_progress?community_hidden=eq.false&order=updated_at.desc&limit=150').catch(() => []),
+        this.getProfiles().catch(() => [])
+      ]);
+
+      const profileMap = new Map();
+      if (Array.isArray(profiles)) {
+        profiles.forEach(p => profileMap.set(String(p.id), p));
+      }
+
+      const map = new Map();
+      if (Array.isArray(rows)) {
+        const seenUserMedia = new Set();
+        for (const r of rows) {
+          if (r.community_hidden === true) continue;
+          const prog = Number(r.progress || 0);
+          const isCompleted = prog >= 95;
+          const isDropped = !!r.is_dropped;
+          const isWatching = !isCompleted && !isDropped && !r.is_hidden;
+
+          if (!isCompleted && !isWatching && !isDropped) continue;
+
+          const key = `${r.user_id}_${r.media_id}`;
+          if (seenUserMedia.has(key)) continue;
+          seenUserMedia.add(key);
+
+          const profile = profileMap.get(String(r.user_id));
+          if (!profile) continue;
+
+          const mId = String(r.media_id);
+          if (!map.has(mId)) {
+            map.set(mId, []);
+          }
+
+          let status = 'watching';
+          if (isDropped) {
+            status = 'dropped';
+          } else if (isCompleted) {
+            status = 'completed';
+          }
+
+          map.get(mId).push({
+            userId: String(r.user_id),
+            username: profile.username,
+            avatar_emoji: profile.avatar_emoji || '🍿',
+            avatar_url: profile.avatar_url || null,
+            status: status,
+            progress: prog,
+            season: Number(r.season) || 0,
+            episode: Number(r.episode) || 0,
+            updatedAt: new Date(r.updated_at).getTime()
+          });
+        }
+      }
+
+      this.socialActivityMap = map;
+      return map;
+    } catch (e) {
+      console.warn('[SupabaseService] Error loading social activity:', e);
+      return this.socialActivityMap;
+    }
+  },
+
+  getMediaSocialActivity(mediaId, includeSelf = false) {
+    if (!mediaId) return [];
+    const list = this.socialActivityMap.get(String(mediaId)) || [];
+    const currentUserId = this.activeUser ? String(this.activeUser.id) : null;
+    if (includeSelf || !currentUserId) {
+      return list;
+    }
+    return list.filter(item => item.userId !== currentUserId);
+  },
+
+  async getCommunityFeed() {
+    try {
+      const [comments, watchingRows, profiles] = await Promise.all([
+        // 1. Comments & recommendations
+        this.restRequest('comments?order=created_at.desc&limit=35').catch(() => []),
+        // 2. Watch progress from users (excluding hidden from community)
+        this.restRequest('watch_progress?community_hidden=eq.false&order=updated_at.desc&limit=60').catch(() => []),
+        // 3. User profiles for avatar and name mapping
+        this.getProfiles().catch(() => [])
+      ]);
+
+      const profileMap = new Map();
+      if (Array.isArray(profiles)) {
+        profiles.forEach(p => profileMap.set(String(p.id), p));
+      }
+
+      // Also update socialActivityMap in memory
+      const newMap = new Map();
+      if (Array.isArray(watchingRows)) {
+        const seenSocial = new Set();
+        for (const r of watchingRows) {
+          if (r.community_hidden === true) continue;
+          const prog = Number(r.progress || 0);
+          const isCompleted = prog >= 95;
+          const isDropped = !!r.is_dropped;
+          const isWatching = !isCompleted && !isDropped && !r.is_hidden;
+          if (!isCompleted && !isWatching && !isDropped) continue;
+
+          const key = `${r.user_id}_${r.media_id}`;
+          if (seenSocial.has(key)) continue;
+          seenSocial.add(key);
+
+          const profile = profileMap.get(String(r.user_id));
+          if (!profile) continue;
+
+          const mId = String(r.media_id);
+          if (!newMap.has(mId)) newMap.set(mId, []);
+
+          let status = 'watching';
+          if (isDropped) {
+            status = 'dropped';
+          } else if (isCompleted) {
+            status = 'completed';
+          }
+
+          newMap.get(mId).push({
+            userId: String(r.user_id),
+            username: profile.username,
+            avatar_emoji: profile.avatar_emoji || '🍿',
+            avatar_url: profile.avatar_url || null,
+            status: status,
+            progress: prog,
+            season: Number(r.season) || 0,
+            episode: Number(r.episode) || 0,
+            updatedAt: new Date(r.updated_at).getTime()
+          });
+        }
+      }
+      this.socialActivityMap = newMap;
+
+      const feed = [];
+      const currentUserId = this.activeUser ? String(this.activeUser.id) : null;
+
+      // Format Comments and Recommendations
+      if (Array.isArray(comments)) {
+        for (const c of comments) {
+          // If profile still exists, use fresh avatar/name
+          const profile = profileMap.get(String(c.user_id));
+          feed.push({
+            id: `comment_${c.id}`,
+            feedType: c.comment_type, // 'comment' or 'recommendation'
+            userId: c.user_id,
+            username: profile ? profile.username : c.username,
+            avatar_emoji: profile ? profile.avatar_emoji : c.avatar_emoji,
+            avatar_url: profile ? profile.avatar_url : c.avatar_url,
+            mediaId: c.media_id,
+            mediaType: c.media_type,
+            source: c.source,
+            title: c.title,
+            posterPath: c.poster_path,
+            backdropPath: c.backdrop_path,
+            slug: c.slug,
+            text: c.comment_text,
+            timestamp: new Date(c.created_at).getTime()
+          });
+        }
+      }
+
+      // Format Watching, Completed & Dropped activities (from OTHER friends only)
+      if (Array.isArray(watchingRows)) {
+        const seenWatching = new Set();
+        for (const w of watchingRows) {
+          // Exclude active user's own watching activity ("L'utente sa cosa sta guardando / ha visto")
+          if (currentUserId && String(w.user_id) === currentUserId) continue;
+          // Exclude anything hidden from community
+          if (w.community_hidden === true) continue;
+
+          const prog = Number(w.progress || 0);
+          const isCompleted = prog >= 95;
+          const isDropped = !!w.is_dropped;
+          const isWatching = !isCompleted && !isDropped && !w.is_hidden;
+
+          // Skip if neither watching, completed, nor dropped
+          if (!isCompleted && !isWatching && !isDropped) continue;
+
+          const profile = profileMap.get(String(w.user_id));
+          if (!profile) continue;
+
+          // Key per user + media so we don't duplicate multiple episodes of the same show for one user
+          const key = `${w.user_id}_${w.media_id}`;
+          if (seenWatching.has(key)) continue;
+          seenWatching.add(key);
+
+          const isSaturn = (w.source === 'animesaturn' || String(w.media_id).startsWith('saturn_'));
+          const isTv = !isSaturn && (w.media_type === 'tv' || (w.media_type !== 'movie' && w.season > 0));
+          const isMovie = !isSaturn && (w.media_type === 'movie' || !isTv);
+
+          let watchText = 'Sta guardando questo contenuto';
+          let actionText = 'sta guardando';
+          let actionClass = 'is-watching';
+
+          if (isDropped) {
+            actionText = 'ha droppato';
+            actionClass = 'is-dropped';
+            watchText = 'Ha abbandonato la visione (non piaciuto)';
+          } else if (isCompleted) {
+            actionText = 'ha visto';
+            actionClass = 'is-completed';
+            if (isSaturn) {
+              watchText = 'Ha completato la visione dell\'anime';
+            } else if (isTv) {
+              watchText = (w.season > 0 && w.episode > 0) ? `Ha finito l'episodio S${w.season}:E${w.episode}` : 'Ha completato la serie TV';
+            } else {
+              watchText = 'Ha completato la visione del film';
+            }
+          } else {
+            actionText = 'sta guardando';
+            actionClass = 'is-watching';
+            if (isSaturn) {
+              watchText = (w.episode > 0) ? `Sta guardando l'episodio ${w.episode}` : 'Sta guardando questo anime';
+            } else if (isTv && w.season > 0 && w.episode > 0) {
+              watchText = `Sta guardando S${w.season}:E${w.episode}`;
+            } else if (isMovie) {
+              watchText = 'Sta guardando questo film';
+            }
+          }
+
+          feed.push({
+            id: `watching_${w.id}`,
+            feedType: 'watching',
+            watchStatus: isDropped ? 'dropped' : (isCompleted ? 'completed' : 'watching'),
+            actionText: actionText,
+            actionClass: actionClass,
+            userId: w.user_id,
+            username: profile.username,
+            avatar_emoji: profile.avatar_emoji,
+            avatar_url: profile.avatar_url,
+            mediaId: w.media_id,
+            mediaType: isSaturn ? 'anime' : (isTv ? 'tv' : 'movie'),
+            source: w.source,
+            title: w.title,
+            posterPath: w.poster_path,
+            backdropPath: w.backdrop_path,
+            season: isTv && w.season > 0 ? w.season : undefined,
+            episode: isTv && w.episode > 0 ? w.episode : undefined,
+            progress: prog,
+            slug: w.slug,
+            text: watchText,
+            timestamp: new Date(w.updated_at).getTime()
+          });
+        }
+      }
+
+      // Sort chronological descending
+      feed.sort((a, b) => b.timestamp - a.timestamp);
+      return feed.slice(0, 30);
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to load community feed:', e);
+      return [];
     }
   }
 };

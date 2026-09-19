@@ -7,7 +7,9 @@ const StorageService = {
     CONTINUE_WATCHING: 'roxy_continue_watching',
     PLAYBACK_POSITIONS: 'roxy_playback_positions',
     WATCHLIST: 'roxy_watchlist',
-    SETTINGS: 'roxy_settings'
+    SETTINGS: 'roxy_settings',
+    COMMUNITY_HIDDEN: 'roxy_community_hidden',
+    DROPPED: 'roxy_dropped'
   },
 
   getUserKey(baseKey) {
@@ -23,12 +25,14 @@ const StorageService = {
       const parsed = JSON.parse(data);
       if (!Array.isArray(parsed)) return [];
       
-      // Strict deduplication by media id and filter out finished movies / finished last episodes
+      // Strict deduplication by media id and filter out finished movies / finished last episodes / dropped items
       const seen = new Set();
       const cleanList = [];
       for (const item of parsed) {
         if (!item || !item.id) continue;
-        const isTv = (item.media_type === 'tv' || item.source === 'animesaturn' || String(item.id).startsWith('saturn_') || !!item.name || item.number_of_seasons !== undefined);
+        if (this.isDropped(item.id)) continue;
+        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+        const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
         const rem = (item.duration && item.currentTime !== undefined) ? (item.duration - item.currentTime) : 999;
         const isNearEnd = (item.progress >= 95) || (item.duration > 300 && rem <= 180);
         
@@ -86,7 +90,7 @@ const StorageService = {
       if (!item || !item.id) return;
       const mediaId = String(item.id);
       const isSaturn = (item.source === 'animesaturn' || mediaId.startsWith('saturn_'));
-      const isTv = (item.media_type === 'tv' || isSaturn || !!item.name || (item.number_of_seasons !== undefined));
+      const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
       
       const finalDuration = (duration && duration > 0) ? Math.floor(duration) : (isTv ? 2700 : 7200);
       const finalCurrentTime = Math.max(0, Math.floor(currentTime || 0));
@@ -102,7 +106,7 @@ const StorageService = {
         source: item.source || (isSaturn ? 'animesaturn' : 'tmdb'),
         slug: item.slug || '',
         isDub: item.isDub || false,
-        media_type: item.media_type || (isSaturn ? 'anime' : (isTv ? 'tv' : 'movie')),
+        media_type: isSaturn ? 'anime' : (isTv ? 'tv' : 'movie'),
         title: item.title || item.name || 'Streaming',
         backdrop_path: item.backdrop_path,
         poster_path: item.poster_path,
@@ -229,7 +233,7 @@ const StorageService = {
           source: item.source || 'tmdb',
           slug: item.slug || '',
           isDub: item.isDub || false,
-          media_type: item.media_type || (item.name ? 'tv' : 'movie'),
+          media_type: item.media_type || (item.name && !item.title ? 'tv' : 'movie'),
           title: item.title || item.name,
           poster_path: item.poster_path,
           backdrop_path: item.backdrop_path,
@@ -247,6 +251,103 @@ const StorageService = {
       console.error('Watchlist toggle error:', e);
       return false;
     }
+  },
+
+  // Community Privacy (Hide watch activity from other friends)
+  isCommunityHidden(id) {
+    try {
+      if (!id) return false;
+      const data = localStorage.getItem(this.getUserKey(this.KEYS.COMMUNITY_HIDDEN));
+      if (!data) return false;
+      const list = JSON.parse(data);
+      return Array.isArray(list) && list.includes(String(id));
+    } catch (e) {
+      return false;
+    }
+  },
+
+  setCommunityHidden(id, isHidden) {
+    try {
+      if (!id) return false;
+      const mediaId = String(id);
+      const data = localStorage.getItem(this.getUserKey(this.KEYS.COMMUNITY_HIDDEN));
+      let list = [];
+      try {
+        list = data ? JSON.parse(data) : [];
+        if (!Array.isArray(list)) list = [];
+      } catch (err) {
+        list = [];
+      }
+
+      if (isHidden) {
+        if (!list.includes(mediaId)) {
+          list.push(mediaId);
+        }
+      } else {
+        list = list.filter(item => item !== mediaId);
+      }
+      localStorage.setItem(this.getUserKey(this.KEYS.COMMUNITY_HIDDEN), JSON.stringify(list));
+
+      if (window.SupabaseService && typeof SupabaseService.setMediaCommunityHidden === 'function') {
+        SupabaseService.setMediaCommunityHidden(mediaId, isHidden).catch(() => {});
+      }
+      return !!isHidden;
+    } catch (e) {
+      console.error('Storage setCommunityHidden error:', e);
+      return false;
+    }
+  },
+
+  toggleCommunityHidden(id) {
+    const current = this.isCommunityHidden(id);
+    return this.setCommunityHidden(id, !current);
+  },
+
+  // Dropped Content Management (Content marked as abandoned / disliked)
+  isDropped(id) {
+    try {
+      if (!id) return false;
+      const data = localStorage.getItem(this.getUserKey(this.KEYS.DROPPED));
+      if (!data) return false;
+      const list = JSON.parse(data);
+      return Array.isArray(list) ? list.includes(String(id)) : !!list[String(id)];
+    } catch (e) {
+      return false;
+    }
+  },
+
+  setMediaDropped(id, isDropped) {
+    try {
+      if (!id) return false;
+      const mediaId = String(id);
+      const data = localStorage.getItem(this.getUserKey(this.KEYS.DROPPED));
+      let list = [];
+      try {
+        list = data ? JSON.parse(data) : [];
+        if (!Array.isArray(list)) list = [];
+      } catch (err) {
+        list = [];
+      }
+
+      if (isDropped) {
+        if (!list.includes(mediaId)) list.push(mediaId);
+        // Remove from local continue watching immediately
+        const contList = this.getContinueWatching().filter(i => String(i.id) !== mediaId);
+        localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(contList));
+      } else {
+        list = list.filter(item => item !== mediaId);
+      }
+      localStorage.setItem(this.getUserKey(this.KEYS.DROPPED), JSON.stringify(list));
+      return !!isDropped;
+    } catch (e) {
+      console.error('Storage setMediaDropped error:', e);
+      return false;
+    }
+  },
+
+  toggleDropped(id) {
+    const current = this.isDropped(id);
+    return this.setMediaDropped(id, !current);
   },
 
   // Sync cloud data into local storage on login

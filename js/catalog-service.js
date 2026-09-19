@@ -229,7 +229,7 @@ const CatalogService = {
   isItemAvailable(item) {
     if (!item || !item.id) return false;
     if (item.source === 'animesaturn' || String(item.id).startsWith('saturn_')) return true;
-    const isTv = (item.media_type === 'tv' || !!item.name || (item.number_of_seasons !== undefined));
+    const isTv = (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
     return isTv ? this.isTvAvailable(item.id) : this.isMovieAvailable(item.id);
   },
 

@@ -281,12 +281,13 @@ const PlayerController = {
       this.promptBtnClose.addEventListener('click', () => this.dismissNextEpisodePrompt());
     }
 
-    // Interactive timeline seeking on click or drag & hover time preview
+    // Interactive timeline seeking on click, touch or drag & hover time preview
     if (this.progressTrack) {
       const handleSeek = (e) => {
         if (!this.videoEl || !this.videoEl.duration) return;
         const rect = this.progressTrack.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
+        const clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX : (e.clientX || 0);
+        const clickX = clientX - rect.left;
         const ratio = Math.max(0, Math.min(1, clickX / rect.width));
         this.videoEl.currentTime = ratio * this.videoEl.duration;
         this.onTimeUpdate();
@@ -297,6 +298,16 @@ const PlayerController = {
         e.stopPropagation();
         handleSeek(e);
       });
+
+      this.progressTrack.addEventListener('touchstart', (e) => {
+        e.stopPropagation();
+        handleSeek(e);
+      }, { passive: true });
+
+      this.progressTrack.addEventListener('touchmove', (e) => {
+        e.stopPropagation();
+        handleSeek(e);
+      }, { passive: true });
 
       this.progressTrack.addEventListener('mousemove', (e) => {
         if (!this.videoEl || !this.videoEl.duration || !this.timePreviewEl) return;
@@ -320,11 +331,59 @@ const PlayerController = {
       this.videoEl.addEventListener('playing', () => this.hideLoadingCurtain());
       this.videoEl.addEventListener('timeupdate', () => this.onTimeUpdate());
       this.videoEl.addEventListener('ended', () => this.onEnded());
+      this.videoEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.osd && this.osd.classList.contains('hidden')) {
+          this.showOSD();
+        } else if (this.isSaturnPlayback()) {
+          this.hideOSD(true);
+        } else {
+          this.hideOSD();
+        }
+      });
     }
 
-    // Reset OSD timer on mouse move
+    // Reset OSD timer on mouse move or click/touch on background
     if (this.container) {
-      this.container.addEventListener('mousemove', () => this.showOSD());
+      this.container.addEventListener('mousemove', () => {
+        if (this.lastHiddenAt && (Date.now() - this.lastHiddenAt < 400)) return;
+        this.showOSD();
+      });
+
+      this.container.addEventListener('click', (e) => {
+        const isControl = !!(e.target && e.target.closest && e.target.closest('button, .osd-btn-circle, .osd-play-btn-large, .osd-progress-track, .osd-progress-wrapper, #player-next-ep-prompt, [role="button"]'));
+        if (isControl) return;
+
+        if (this.isSaturnPlayback()) {
+          if (this.osd && !this.osd.classList.contains('hidden')) {
+            e.stopPropagation();
+            this.hideOSD(true);
+          } else if (this.osd && this.osd.classList.contains('hidden')) {
+            this.showOSD();
+          }
+          return;
+        }
+
+        if (e.target === this.container || e.target === this.osd) {
+          if (this.osd && this.osd.classList.contains('hidden')) {
+            this.showOSD();
+          } else {
+            this.hideOSD();
+          }
+        }
+      });
+    }
+
+    // Explicit click listener on player OSD: on Saturn stream, clicking on screen (not controls) hides OSD
+    if (this.osd) {
+      this.osd.addEventListener('click', (e) => {
+        if (!this.isSaturnPlayback()) return;
+        const isControl = !!(e.target && e.target.closest && e.target.closest('button, .osd-btn-circle, .osd-play-btn-large, .osd-progress-track, .osd-progress-wrapper, #player-next-ep-prompt, [role="button"]'));
+        if (!isControl) {
+          e.stopPropagation();
+          this.hideOSD(true);
+        }
+      });
     }
   },
 
@@ -352,7 +411,7 @@ const PlayerController = {
       return;
     }
 
-    const isTv = (item.media_type === 'tv' || !!item.name || (item.number_of_seasons !== undefined));
+    const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
     let season = item.season;
     let episode = item.episode;
 
@@ -374,6 +433,12 @@ const PlayerController = {
       item.episode = episode;
       item.media_type = 'tv';
       this.resolveAdjacentEpisodes(item);
+    } else {
+      season = 0;
+      episode = 0;
+      item.season = undefined;
+      item.episode = undefined;
+      item.media_type = 'movie';
     }
 
     // Check for saved resume position if not explicitly passed
@@ -481,6 +546,7 @@ const PlayerController = {
     // Save initial progress
     StorageService.saveWatchProgress({
       ...item,
+      media_type: isTv ? 'tv' : 'movie',
       season: isTv ? season : undefined,
       episode: isTv ? episode : undefined
     }, resumeSec, this.estimatedDuration);
@@ -1197,6 +1263,23 @@ const PlayerController = {
     this.showOSD();
   },
 
+  isSaturnPlayback() {
+    if (!this.isActive || !this.currentItem) return false;
+    return (this.currentItem.source === 'animesaturn' || String(this.currentItem.id || '').startsWith('saturn_'));
+  },
+
+  hideOSD(force = false) {
+    if (!this.osd) return;
+    if (this.osdTimeout) {
+      clearTimeout(this.osdTimeout);
+      this.osdTimeout = null;
+    }
+    if (this.isActive && (this.isPlaying || force)) {
+      this.osd.classList.add('hidden');
+      this.lastHiddenAt = Date.now();
+    }
+  },
+
   showOSD() {
     if (!this.osd) return;
     this.osd.classList.remove('hidden');
@@ -1205,11 +1288,10 @@ const PlayerController = {
       clearTimeout(this.osdTimeout);
     }
 
+    // Snappy auto-hide timer for player controls & top bar (2200ms)
     this.osdTimeout = setTimeout(() => {
-      if (this.isActive && this.isPlaying) {
-        this.osd.classList.add('hidden');
-      }
-    }, 4500);
+      this.hideOSD();
+    }, 2200);
   },
 
   onTimeUpdate() {
@@ -1290,7 +1372,7 @@ const PlayerController = {
   updatePlayerTitle(item) {
     if (!item) return '';
     const isSaturn = (item.source === 'animesaturn' || (item.id && String(item.id).startsWith('saturn_')));
-    const isTv = (item.media_type === 'tv' || isSaturn || !!item.name || (item.number_of_seasons !== undefined));
+    const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
     const baseTitle = this.cleanBaseTitle(item);
 
     let displayTitle = baseTitle;
@@ -1333,7 +1415,7 @@ const PlayerController = {
     if (!item) return;
 
     const isSaturn = (item.source === 'animesaturn' || (item.id && String(item.id).startsWith('saturn_')));
-    const isTv = (item.media_type === 'tv' || isSaturn || !!item.name || (item.number_of_seasons !== undefined));
+    const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
     if (!isTv) return;
 
     const baseTitle = this.cleanBaseTitle(item);
