@@ -242,6 +242,64 @@ class RoxyApp {
     }
   }
 
+  // =========================================================================
+  // Horizontal Carousel Scroll Chevrons
+  // =========================================================================
+  setupCarouselArrows(container) {
+    if (!container) return;
+    const carousel = container.querySelector('.row-carousel');
+    if (!carousel) return;
+
+    let wrapper = carousel.parentElement;
+    if (!wrapper || !wrapper.classList.contains('carousel-wrapper')) {
+      wrapper = document.createElement('div');
+      wrapper.className = 'carousel-wrapper';
+      carousel.parentNode.insertBefore(wrapper, carousel);
+      wrapper.appendChild(carousel);
+
+      const btnLeft = document.createElement('button');
+      btnLeft.className = 'carousel-arrow carousel-arrow-left';
+      btnLeft.setAttribute('aria-label', 'Scorri indietro');
+      btnLeft.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>`;
+
+      const btnRight = document.createElement('button');
+      btnRight.className = 'carousel-arrow carousel-arrow-right';
+      btnRight.setAttribute('aria-label', 'Scorri avanti');
+      btnRight.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
+
+      wrapper.insertBefore(btnLeft, carousel);
+      wrapper.appendChild(btnRight);
+
+      btnLeft.addEventListener('click', (e) => {
+        e.stopPropagation();
+        carousel.scrollBy({ left: -Math.floor(carousel.clientWidth * 0.75), behavior: 'smooth' });
+      });
+
+      btnRight.addEventListener('click', (e) => {
+        e.stopPropagation();
+        carousel.scrollBy({ left: Math.floor(carousel.clientWidth * 0.75), behavior: 'smooth' });
+      });
+    }
+
+    const btnLeft = wrapper.querySelector('.carousel-arrow-left');
+    const btnRight = wrapper.querySelector('.carousel-arrow-right');
+
+    const updateArrowVisibility = () => {
+      if (!carousel || !btnLeft || !btnRight) return;
+      const canScrollLeft = carousel.scrollLeft > 10;
+      const canScrollRight = (carousel.scrollWidth - carousel.clientWidth - carousel.scrollLeft) > 10;
+
+      btnLeft.classList.toggle('is-visible', canScrollLeft);
+      btnRight.classList.toggle('is-visible', canScrollRight);
+    };
+
+    carousel.addEventListener('scroll', updateArrowVisibility, { passive: true });
+    wrapper.addEventListener('mouseenter', updateArrowVisibility);
+
+    setTimeout(updateArrowVisibility, 150);
+    setTimeout(updateArrowVisibility, 600);
+  }
+
   renderRowContent(slotElement, title, items) {
     if (!items || items.length === 0 || !slotElement) return;
 
@@ -257,8 +315,9 @@ class RoxyApp {
       </div>
     `;
 
-    // Ensure social viewer avatar stack is up to date
+    // Ensure social viewer avatar stack is up to date and attach scroll arrows
     this.updateCardsSocialStacks(slotElement);
+    this.setupCarouselArrows(slotElement);
 
     // Attach click listeners: play button starts playback, card body opens details modal
     slotElement.querySelectorAll('.media-card').forEach(card => {
@@ -663,6 +722,8 @@ class RoxyApp {
       </div>
     `;
 
+    this.setupCarouselArrows(container);
+
     // Attach click events: Play button starts playback directly, clicking the card body opens details modal
     container.querySelectorAll('.continue-card').forEach(card => {
       const rawId = card.getAttribute('data-id');
@@ -849,6 +910,8 @@ class RoxyApp {
         </div>
       `;
 
+      this.setupCarouselArrows(container);
+
       // Attach click events: opening the media details modal
       container.querySelectorAll('.community-feed-card').forEach(card => {
         card.addEventListener('click', () => {
@@ -895,6 +958,7 @@ class RoxyApp {
 
     parent.appendChild(row);
     this.updateCardsSocialStacks(row);
+    this.setupCarouselArrows(row);
 
     // Attach click listeners: play button starts playback, card body opens details modal
     row.querySelectorAll('.media-card').forEach(card => {
@@ -1010,9 +1074,42 @@ class RoxyApp {
     const modalSocialViewers = document.getElementById('modal-social-viewers');
     const refreshModalSocialViewers = () => {
       if (!modalSocialViewers) return;
-      const viewers = (window.SupabaseService && typeof SupabaseService.getMediaSocialActivity === 'function')
-        ? SupabaseService.getMediaSocialActivity(data.id, true)
+      let viewers = (window.SupabaseService && typeof SupabaseService.getMediaSocialActivity === 'function')
+        ? [...SupabaseService.getMediaSocialActivity(data.id, true)]
         : [];
+
+      const activeUser = (window.SupabaseService && typeof SupabaseService.getActiveUser === 'function')
+        ? SupabaseService.getActiveUser()
+        : null;
+
+      if (activeUser) {
+        const activeUserId = String(activeUser.id);
+        const myProgress = StorageService.getItemProgress(data.id);
+        const myDropped = StorageService.isDropped(data.id);
+        const myCont = StorageService.getContinueWatching().some(i => String(i.id) === String(data.id));
+        const myCompleted = !!(myProgress && (myProgress.progress >= 95 || myProgress.isCompleted));
+        const myStarted = !!(myProgress && (myProgress.currentTime > 5 || myProgress.progress > 0)) || myCont;
+
+        const existingIdx = viewers.findIndex(v => v.userId === activeUserId);
+        if (myDropped || myCompleted || myStarted) {
+          const myStatus = myDropped ? 'dropped' : (myCompleted ? 'completed' : 'watching');
+          const myEntry = {
+            userId: activeUserId,
+            username: activeUser.username || 'Tu',
+            avatar_emoji: activeUser.avatar_emoji || '🍿',
+            avatar_url: activeUser.avatar_url || null,
+            status: myStatus,
+            progress: myProgress ? myProgress.progress : 0
+          };
+          if (existingIdx >= 0) {
+            viewers[existingIdx] = myEntry;
+          } else {
+            viewers.unshift(myEntry);
+          }
+        } else if (existingIdx >= 0) {
+          viewers.splice(existingIdx, 1);
+        }
+      }
 
       if (viewers && viewers.length > 0) {
         modalSocialViewers.style.display = 'flex';
@@ -1390,6 +1487,7 @@ class RoxyApp {
             this.renderCommunityRow();
             this.updateCardsSocialStacks();
             refreshModalSocialViewers();
+            if (typeof refreshModalProgressButtons === 'function') refreshModalProgressButtons();
           } catch (err) {
             console.error('[Roxy] Error updating dropped status:', err);
             this.showToast('Errore durante l\'aggiornamento dello stato.');
@@ -1400,6 +1498,79 @@ class RoxyApp {
       } else {
         btnDrop.style.display = 'none';
       }
+    }
+
+    // "Segna come finito" and "Segna come Da guardare" (Azzera progressi) Handlers
+    const btnMarkFinished = document.getElementById('modal-btn-mark-finished');
+    const btnResetProgress = document.getElementById('modal-btn-reset-progress');
+
+    const refreshModalProgressButtons = () => {
+      const p = StorageService.getItemProgress(mediaId);
+      const isCont = StorageService.getContinueWatching().some(i => String(i.id) === mediaId);
+      const currDropped = StorageService.isDropped(mediaId);
+      const currStarted = !!(p && (p.currentTime > 5 || p.progress > 0)) || isCont;
+      const isSaturnItem = (data.source === 'animesaturn' || mediaId.startsWith('saturn_'));
+      const isTvItem = !isSaturnItem && (data.media_type === 'tv' || (data.media_type !== 'movie' && (data.number_of_seasons !== undefined || (!!data.name && !data.title))));
+      const isSeriesItem = isTvItem || isSaturnItem || data.media_type === 'anime';
+      const currCompleted = !!(p && (p.isCompleted || (!isSeriesItem && p.progress >= 95) || (isSeriesItem && p.isLastEpisode && p.progress >= 95)));
+
+      if (btnMarkFinished) {
+        if (!currCompleted) {
+          btnMarkFinished.style.display = 'inline-flex';
+        } else {
+          btnMarkFinished.style.display = 'none';
+        }
+      }
+
+      if (btnResetProgress) {
+        if (currStarted || currCompleted || currDropped) {
+          btnResetProgress.style.display = 'inline-flex';
+        } else {
+          btnResetProgress.style.display = 'none';
+        }
+      }
+    };
+
+    refreshModalProgressButtons();
+
+    if (btnMarkFinished) {
+      btnMarkFinished.onclick = async () => {
+        btnMarkFinished.disabled = true;
+        try {
+          StorageService.setMediaCompleted(mediaId, true, data);
+          this.showToast(`"${data.title || data.name}" segnato come finito! ✓`);
+          refreshModalProgressButtons();
+          refreshModalSocialViewers();
+          if (btnRemoveContinue) btnRemoveContinue.style.display = 'none';
+          this.renderContinueWatchingRow();
+          this.renderCommunityRow();
+          this.updateCardsSocialStacks();
+        } catch (e) {
+          console.error('[Roxy] Error marking as finished:', e);
+        } finally {
+          btnMarkFinished.disabled = false;
+        }
+      };
+    }
+
+    if (btnResetProgress) {
+      btnResetProgress.onclick = async () => {
+        btnResetProgress.disabled = true;
+        try {
+          StorageService.resetMediaProgress(mediaId);
+          this.showToast(`Progressi azzerati per "${data.title || data.name}". Segnato come Da guardare.`);
+          refreshModalProgressButtons();
+          refreshModalSocialViewers();
+          if (btnRemoveContinue) btnRemoveContinue.style.display = 'none';
+          this.renderContinueWatchingRow();
+          this.renderCommunityRow();
+          this.updateCardsSocialStacks();
+        } catch (e) {
+          console.error('[Roxy] Error resetting progress:', e);
+        } finally {
+          btnResetProgress.disabled = false;
+        }
+      };
     }
 
     // =========================================================================

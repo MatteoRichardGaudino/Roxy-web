@@ -522,6 +522,55 @@
   box-shadow: 0 0 10px var(--primary-indigo-glow);
 }
 
+/* Horizontal Row Carousel Wrapper with Scroll Chevrons */
+.carousel-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.carousel-arrow {
+  position: absolute;
+  top: calc(50% - 4px);
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(12, 12, 22, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 25;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
+}
+
+.carousel-arrow-left {
+  left: 14px;
+}
+
+.carousel-arrow-right {
+  right: 14px;
+}
+
+.carousel-wrapper:hover .carousel-arrow.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.carousel-arrow:hover {
+  background: rgba(99, 102, 241, 0.8);
+  border-color: var(--primary-indigo-light);
+  transform: translateY(-50%) scale(1.12);
+  box-shadow: 0 0 20px var(--primary-indigo-glow);
+}
+
 .row-carousel {
   display: flex;
   gap: 22px;
@@ -529,6 +578,11 @@
   overflow-y: visible;
   padding: 24px 60px 32px 60px;
   scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+
+.row-carousel::-webkit-scrollbar {
+  display: none;
 }
 
 /* Movie/Show Poster Card */
@@ -2509,6 +2563,39 @@
 .btn-community-visibility.is-hidden-community .visibility-icon {
   stroke: #c4b5fd;
   transform: scale(1.1);
+}
+
+/* Mark as Finished Button (Green Checkmark) */
+.btn-mark-finished {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-mark-finished:hover {
+  border-color: rgba(16, 185, 129, 0.6) !important;
+  color: #34d399 !important;
+}
+
+.btn-mark-finished.is-finished {
+  background: rgba(16, 185, 129, 0.22) !important;
+  border-color: #10b981 !important;
+  color: #34d399 !important;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.45);
+}
+
+/* Reset Progress Button (Cyan/Blue Refresh) */
+.btn-reset-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-reset-progress:hover {
+  border-color: rgba(56, 189, 248, 0.6) !important;
+  color: #38bdf8 !important;
 }
 
 /* Modal Comments Section */

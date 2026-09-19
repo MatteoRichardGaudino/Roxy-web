@@ -1642,17 +1642,19 @@ const PlayerController = {
   },
 
   checkNextEpisodePrompt(currentTime, duration) {
-    if (!this.nextEpisodeInfo || this.isNextPromptDismissed) return;
+    if (!this.nextEpisodeInfo) return;
     if (!duration || duration <= 180 || !currentTime) return;
 
     const remaining = duration - currentTime;
+    // If dismissed early by user with 'X', suppress until the final 15 seconds / credits
+    if (this.isNextPromptDismissed && remaining > 15) return;
     if (remaining <= 120 && remaining > 0) {
       this.showNextEpisodePrompt();
     }
   },
 
   showNextEpisodePrompt() {
-    if (!this.nextEpPrompt || this.isNextPromptDismissed || !this.nextEpisodeInfo) return;
+    if (!this.nextEpPrompt || !this.nextEpisodeInfo) return;
     if (this.promptNextLabel) {
       this.promptNextLabel.textContent = (this.nextEpisodeInfo && this.nextEpisodeInfo.isNextSeason) ? 'Prossima Stagione' : 'Prossimo Episodio';
     }
@@ -1673,6 +1675,7 @@ const PlayerController = {
   playNextEpisode() {
     if (!this.nextEpisodeInfo) return;
     const nextItem = { ...this.nextEpisodeInfo };
+    this.isNextPromptDismissed = false;
     this.hideNextEpisodePrompt();
 
     // Immediately update title to show next episode number and title without delay
@@ -1695,6 +1698,7 @@ const PlayerController = {
   playPrevEpisode() {
     if (!this.prevEpisodeInfo) return;
     const prevItem = { ...this.prevEpisodeInfo };
+    this.isNextPromptDismissed = false;
     this.hideNextEpisodePrompt();
 
     // Immediately update title to show previous episode number and title without delay

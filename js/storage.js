@@ -362,6 +362,83 @@ const StorageService = {
     return this.setMediaDropped(id, !current);
   },
 
+  // Set Media Completed ("Segna come finito")
+  setMediaCompleted(id, isCompleted = true, mediaData = {}) {
+    try {
+      if (!id) return;
+      const mediaId = String(id);
+      const isSaturn = (mediaData.source === 'animesaturn' || mediaId.startsWith('saturn_'));
+      const isTv = !isSaturn && (mediaData.media_type === 'tv' || (mediaData.media_type !== 'movie' && (mediaData.number_of_seasons !== undefined || (!!mediaData.name && !mediaData.title))));
+      const isSeries = isTv || isSaturn || mediaData.media_type === 'anime';
+
+      const duration = (mediaData.duration && mediaData.duration > 0) ? mediaData.duration : (isSeries ? 2700 : 7200);
+
+      // 1. Remove from continue watching
+      const contList = this.getContinueWatching().filter(i => String(i.id) !== mediaId);
+      localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(contList));
+
+      // 2. Update positions cache with completed flag
+      try {
+        const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
+        const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
+        positions[mediaId] = {
+          id: mediaId,
+          ...mediaData,
+          progress: 100,
+          currentTime: duration,
+          duration: duration,
+          isCompleted: true,
+          isLastEpisode: true,
+          updatedAt: Date.now()
+        };
+        localStorage.setItem(positionsKey, JSON.stringify(positions));
+      } catch (e) {}
+
+      // 3. Unmark from dropped
+      this.setMediaDropped(mediaId, false);
+
+      // 4. Sync to Supabase Cloud
+      if (window.SupabaseService && typeof SupabaseService.setMediaCompleted === 'function') {
+        SupabaseService.setMediaCompleted(mediaId, isCompleted, mediaData).catch(() => {});
+      }
+    } catch (e) {
+      console.error('Storage setMediaCompleted error:', e);
+    }
+  },
+
+  // Reset Watch Progress ("Segna come Da guardare" / Azzera progressi)
+  resetMediaProgress(id) {
+    try {
+      if (!id) return;
+      const mediaId = String(id);
+
+      // 1. Remove from continue watching
+      const contList = this.getContinueWatching().filter(i => String(i.id) !== mediaId);
+      localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(contList));
+
+      // 2. Clear all positions for this media from cache
+      try {
+        const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
+        const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
+        delete positions[mediaId];
+        Object.keys(positions).forEach(k => {
+          if (k.startsWith(`${mediaId}_`)) delete positions[k];
+        });
+        localStorage.setItem(positionsKey, JSON.stringify(positions));
+      } catch (e) {}
+
+      // 3. Unset dropped
+      this.setMediaDropped(mediaId, false);
+
+      // 4. Reset in Supabase Cloud
+      if (window.SupabaseService && typeof SupabaseService.resetMediaProgress === 'function') {
+        SupabaseService.resetMediaProgress(mediaId).catch(() => {});
+      }
+    } catch (e) {
+      console.error('Storage resetMediaProgress error:', e);
+    }
+  },
+
   // Sync cloud data into local storage on login
   async syncFromCloud() {
     if (!window.SupabaseService) return;

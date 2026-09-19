@@ -326,7 +326,7 @@ const SupabaseService = {
   },
 
   // =========================================================================
-  // Cloud Watch Progress Sync (Continue Watching)
+  // Cloud Watch Progress Sync & Social Presence
   // =========================================================================
   async syncWatchProgress(item, currentTime, duration) {
     const user = this.getActiveUser();
@@ -335,14 +335,17 @@ const SupabaseService = {
     const mediaId = String(item.id);
     const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
     const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
+    const isSeries = isTv || isSaturn || item.media_type === 'anime';
     
     // Movies strictly use season 0, episode 0 to avoid duplicate rows
-    const season = isTv ? (Number(item.season) || 1) : 0;
-    const episode = isTv ? (Number(item.episode) || 1) : 0;
+    const season = isSeries ? (Number(item.season) || 1) : 0;
+    const episode = isSeries ? (Number(item.episode) || 1) : 0;
     
-    const validDuration = (duration && duration > 0) ? Math.floor(duration) : (isTv ? 2700 : 7200);
+    const validDuration = (duration && duration > 0) ? Math.floor(duration) : (isSeries ? 2700 : 7200);
     const validCurrentTime = Math.max(0, Math.floor(currentTime || 0));
     const progress = Math.min(100, Math.max(0, (validCurrentTime / validDuration) * 100));
+
+    const isCompleted = (!isSeries && progress >= 95) || (isSeries && !!item.isLastEpisode && progress >= 95) || !!item.isCompleted;
 
     const payload = {
       user_id: user.id,
@@ -359,7 +362,9 @@ const SupabaseService = {
       duration: validDuration,
       progress: Math.round(progress * 10) / 10,
       is_dub: !!item.isDub,
-      is_hidden: false,
+      is_hidden: isCompleted,
+      is_completed: isCompleted,
+      is_last_episode: !!item.isLastEpisode,
       is_dropped: typeof StorageService !== 'undefined' && typeof StorageService.isDropped === 'function' ? StorageService.isDropped(mediaId) : false,
       community_hidden: typeof StorageService !== 'undefined' && typeof StorageService.isCommunityHidden === 'function' ? StorageService.isCommunityHidden(mediaId) : false,
       slug: item.slug || '',
@@ -426,6 +431,76 @@ const SupabaseService = {
       await this.loadGlobalSocialActivity();
     } catch (e) {
       console.warn('[SupabaseService] Failed to set dropped status:', e);
+    }
+  },
+
+  async setMediaCompleted(mediaId, isCompleted = true, mediaData = null) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !mediaId) return;
+
+    try {
+      const res = await this.restRequest(`watch_progress?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}`, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=representation' },
+        body: JSON.stringify({
+          progress: isCompleted ? 100 : 0,
+          is_hidden: !!isCompleted,
+          is_dropped: false,
+          is_completed: !!isCompleted,
+          is_last_episode: !!isCompleted,
+          updated_at: new Date().toISOString()
+        })
+      });
+
+      if ((!res || res.length === 0) && mediaData) {
+        const isSaturn = (mediaData.source === 'animesaturn' || String(mediaId).startsWith('saturn_'));
+        const isTv = !isSaturn && (mediaData.media_type === 'tv' || (mediaData.media_type !== 'movie' && (mediaData.number_of_seasons !== undefined || (!!mediaData.name && !mediaData.title))));
+        const isSeries = isTv || isSaturn || mediaData.media_type === 'anime';
+
+        await this.restRequest('watch_progress?on_conflict=user_id,media_id,season,episode', {
+          method: 'POST',
+          headers: { 'Prefer': 'resolution=merge-duplicates' },
+          body: JSON.stringify({
+            user_id: user.id,
+            media_id: String(mediaId),
+            source: mediaData.source || (isSaturn ? 'animesaturn' : 'tmdb'),
+            media_type: mediaData.media_type || (isSaturn ? 'anime' : (isTv ? 'tv' : 'movie')),
+            title: mediaData.title || mediaData.name || 'Streaming',
+            poster_path: mediaData.poster_path || '',
+            backdrop_path: mediaData.backdrop_path || '',
+            season: isSeries ? (Number(mediaData.season) || 1) : 0,
+            episode: isSeries ? (Number(mediaData.episode) || 1) : 0,
+            playback_time: isSeries ? 2700 : 7200,
+            duration: isSeries ? 2700 : 7200,
+            progress: 100,
+            is_hidden: true,
+            is_completed: true,
+            is_last_episode: true,
+            is_dropped: false,
+            community_hidden: typeof StorageService !== 'undefined' && typeof StorageService.isCommunityHidden === 'function' ? StorageService.isCommunityHidden(mediaId) : false,
+            slug: mediaData.slug || '',
+            updated_at: new Date().toISOString()
+          })
+        });
+      }
+
+      await this.loadGlobalSocialActivity();
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to set completed status:', e);
+    }
+  },
+
+  async resetMediaProgress(mediaId) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !mediaId) return;
+
+    try {
+      await this.restRequest(`watch_progress?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}`, {
+        method: 'DELETE'
+      });
+      await this.loadGlobalSocialActivity();
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to reset media progress:', e);
     }
   },
 
@@ -787,8 +862,12 @@ const SupabaseService = {
         const seenUserMedia = new Set();
         for (const r of rows) {
           if (r.community_hidden === true) continue;
+          const isSaturn = (r.source === 'animesaturn' || String(r.media_id).startsWith('saturn_'));
+          const isTv = !isSaturn && (r.media_type === 'tv' || (r.media_type !== 'movie' && Number(r.season) > 0));
+          const isSeries = isTv || isSaturn || r.media_type === 'anime';
           const prog = Number(r.progress || 0);
-          const isCompleted = prog >= 95;
+
+          const isCompleted = r.is_completed === true || (!isSeries && prog >= 95) || (isSeries && r.is_last_episode === true && prog >= 95);
           const isDropped = !!r.is_dropped;
           const isWatching = !isCompleted && !isDropped && !r.is_hidden;
 
@@ -867,8 +946,12 @@ const SupabaseService = {
         const seenSocial = new Set();
         for (const r of watchingRows) {
           if (r.community_hidden === true) continue;
+          const isSaturn = (r.source === 'animesaturn' || String(r.media_id).startsWith('saturn_'));
+          const isTv = !isSaturn && (r.media_type === 'tv' || (r.media_type !== 'movie' && Number(r.season) > 0));
+          const isSeries = isTv || isSaturn || r.media_type === 'anime';
           const prog = Number(r.progress || 0);
-          const isCompleted = prog >= 95;
+
+          const isCompleted = r.is_completed === true || (!isSeries && prog >= 95) || (isSeries && r.is_last_episode === true && prog >= 95);
           const isDropped = !!r.is_dropped;
           const isWatching = !isCompleted && !isDropped && !r.is_hidden;
           if (!isCompleted && !isWatching && !isDropped) continue;
@@ -942,8 +1025,12 @@ const SupabaseService = {
           // Exclude anything hidden from community
           if (w.community_hidden === true) continue;
 
+          const isSaturn = (w.source === 'animesaturn' || String(w.media_id).startsWith('saturn_'));
+          const isTv = !isSaturn && (w.media_type === 'tv' || (w.media_type !== 'movie' && Number(w.season) > 0));
+          const isSeries = isTv || isSaturn || w.media_type === 'anime';
           const prog = Number(w.progress || 0);
-          const isCompleted = prog >= 95;
+
+          const isCompleted = w.is_completed === true || (!isSeries && prog >= 95) || (isSeries && w.is_last_episode === true && prog >= 95);
           const isDropped = !!w.is_dropped;
           const isWatching = !isCompleted && !isDropped && !w.is_hidden;
 
@@ -957,10 +1044,6 @@ const SupabaseService = {
           const key = `${w.user_id}_${w.media_id}`;
           if (seenWatching.has(key)) continue;
           seenWatching.add(key);
-
-          const isSaturn = (w.source === 'animesaturn' || String(w.media_id).startsWith('saturn_'));
-          const isTv = !isSaturn && (w.media_type === 'tv' || (w.media_type !== 'movie' && w.season > 0));
-          const isMovie = !isSaturn && (w.media_type === 'movie' || !isTv);
 
           let watchText = 'Sta guardando questo contenuto';
           let actionText = 'sta guardando';
