@@ -823,16 +823,14 @@ class RoxyApp {
         container = document.createElement('div');
         container.id = 'community-row';
         container.className = 'content-row';
+      }
 
-        // Insert right after continue-watching-row if present, or as first element
-        const contRow = document.getElementById('continue-watching-row');
-        if (contRow && contRow.nextSibling) {
-          currentWrapper.insertBefore(container, contRow.nextSibling);
-        } else if (contRow) {
-          currentWrapper.appendChild(container);
-        } else {
-          currentWrapper.insertBefore(container, currentWrapper.firstChild);
-        }
+      // Position right after continue-watching-row if present, or as first element in rows container
+      const contRow = document.getElementById('continue-watching-row');
+      if (contRow && contRow.nextSibling !== container) {
+        currentWrapper.insertBefore(container, contRow.nextSibling);
+      } else if (!contRow && currentWrapper.firstChild !== container) {
+        currentWrapper.insertBefore(container, currentWrapper.firstChild);
       }
 
       container.innerHTML = `

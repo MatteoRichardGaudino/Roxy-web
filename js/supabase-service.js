@@ -1053,6 +1053,7 @@ const SupabaseService = {
           const isSaturn = (w.source === 'animesaturn' || String(w.media_id).startsWith('saturn_'));
           const isTv = !isSaturn && (w.media_type === 'tv' || (w.media_type !== 'movie' && Number(w.season) > 0));
           const isSeries = isTv || isSaturn || w.media_type === 'anime';
+          const isMovie = !isSeries;
           const prog = Number(w.progress || 0);
 
           const isCompleted = w.is_completed === true || (!isSeries && prog >= 95) || (isSeries && w.is_last_episode === true && prog >= 95);
@@ -1095,7 +1096,7 @@ const SupabaseService = {
               watchText = (w.episode > 0) ? `Sta guardando l'episodio ${w.episode}` : 'Sta guardando questo anime';
             } else if (isTv && w.season > 0 && w.episode > 0) {
               watchText = `Sta guardando S${w.season}:E${w.episode}`;
-            } else if (isMovie) {
+            } else {
               watchText = 'Sta guardando questo film';
             }
           }
