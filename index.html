@@ -255,23 +255,55 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label">Scegli Emoji Avatar</label>
-            <div id="emoji-picker" class="emoji-picker-grid">
-              <button class="emoji-btn navigable focus-compact active" data-emoji="🍿" tabindex="0">🍿</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="🦊" tabindex="0">🦊</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="🚀" tabindex="0">🚀</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="🪐" tabindex="0">🪐</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="🎬" tabindex="0">🎬</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="👑" tabindex="0">👑</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="🍕" tabindex="0">🍕</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="🎮" tabindex="0">🎮</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="👾" tabindex="0">👾</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="🐱" tabindex="0">🐱</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="🎧" tabindex="0">🎧</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="🔥" tabindex="0">🔥</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="🏆" tabindex="0">🏆</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="💎" tabindex="0">💎</button>
-              <button class="emoji-btn navigable focus-compact" data-emoji="⚡" tabindex="0">⚡</button>
+            <div class="avatar-type-selector">
+              <button type="button" id="create-tab-emoji" class="avatar-type-tab navigable focus-compact active" data-type="emoji" tabindex="0">
+                <span>😀</span> Emoji
+              </button>
+              <button type="button" id="create-tab-photo" class="avatar-type-tab navigable focus-compact" data-type="photo" tabindex="0">
+                <span>📷</span> Foto
+              </button>
+            </div>
+
+            <!-- Emoji Picker Content -->
+            <div id="create-content-emoji" class="avatar-tab-content active">
+              <div id="emoji-picker" class="emoji-picker-grid">
+                <button class="emoji-btn navigable focus-compact active" data-emoji="🍿" tabindex="0">🍿</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="🦊" tabindex="0">🦊</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="🚀" tabindex="0">🚀</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="🪐" tabindex="0">🪐</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="🎬" tabindex="0">🎬</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="👑" tabindex="0">👑</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="🍕" tabindex="0">🍕</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="🎮" tabindex="0">🎮</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="👾" tabindex="0">👾</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="🐱" tabindex="0">🐱</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="🎧" tabindex="0">🎧</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="🔥" tabindex="0">🔥</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="🏆" tabindex="0">🏆</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="💎" tabindex="0">💎</button>
+                <button class="emoji-btn navigable focus-compact" data-emoji="⚡" tabindex="0">⚡</button>
+              </div>
+            </div>
+
+            <!-- Photo Upload Content -->
+            <div id="create-content-photo" class="avatar-tab-content" style="display: none;">
+              <div class="photo-upload-container">
+                <div class="photo-preview-wrap">
+                  <div id="create-photo-preview" class="photo-preview-circle">
+                    <span class="photo-placeholder-icon">📷</span>
+                  </div>
+                  <input type="file" id="create-photo-input" accept="image/*" style="display: none;" />
+                </div>
+                <div class="photo-upload-actions">
+                  <button type="button" id="btn-create-choose-photo" class="btn-secondary-glass navigable focus-compact" tabindex="0">
+                    📁 Carica Foto
+                  </button>
+                  <button type="button" id="btn-create-remove-photo" class="btn-danger-glass navigable focus-compact" style="display: none;" tabindex="0">
+                    ✕ Rimuovi
+                  </button>
+                  <span id="create-photo-hint" class="photo-upload-hint">Foto quadrata compressa automaticamente (WebP)</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -311,23 +343,55 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label">Scegli Emoji Avatar</label>
-            <div id="settings-emoji-picker" class="emoji-picker-grid">
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="🍿" tabindex="0">🍿</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="🦊" tabindex="0">🦊</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="🚀" tabindex="0">🚀</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="🪐" tabindex="0">🪐</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="🎬" tabindex="0">🎬</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="👑" tabindex="0">👑</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="🍕" tabindex="0">🍕</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="🎮" tabindex="0">🎮</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="👾" tabindex="0">👾</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="🐱" tabindex="0">🐱</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="🎧" tabindex="0">🎧</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="🔥" tabindex="0">🔥</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="🏆" tabindex="0">🏆</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="💎" tabindex="0">💎</button>
-              <button class="settings-emoji-btn navigable focus-compact" data-emoji="⚡" tabindex="0">⚡</button>
+            <div class="avatar-type-selector">
+              <button type="button" id="settings-tab-emoji" class="avatar-type-tab navigable focus-compact active" data-type="emoji" tabindex="0">
+                <span>😀</span> Emoji
+              </button>
+              <button type="button" id="settings-tab-photo" class="avatar-type-tab navigable focus-compact" data-type="photo" tabindex="0">
+                <span>📷</span> Foto
+              </button>
+            </div>
+
+            <!-- Settings Emoji Picker Content -->
+            <div id="settings-content-emoji" class="avatar-tab-content active">
+              <div id="settings-emoji-picker" class="emoji-picker-grid">
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="🍿" tabindex="0">🍿</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="🦊" tabindex="0">🦊</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="🚀" tabindex="0">🚀</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="🪐" tabindex="0">🪐</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="🎬" tabindex="0">🎬</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="👑" tabindex="0">👑</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="🍕" tabindex="0">🍕</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="🎮" tabindex="0">🎮</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="👾" tabindex="0">👾</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="🐱" tabindex="0">🐱</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="🎧" tabindex="0">🎧</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="🔥" tabindex="0">🔥</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="🏆" tabindex="0">🏆</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="💎" tabindex="0">💎</button>
+                <button class="settings-emoji-btn navigable focus-compact" data-emoji="⚡" tabindex="0">⚡</button>
+              </div>
+            </div>
+
+            <!-- Settings Photo Upload Content -->
+            <div id="settings-content-photo" class="avatar-tab-content" style="display: none;">
+              <div class="photo-upload-container">
+                <div class="photo-preview-wrap">
+                  <div id="settings-photo-preview" class="photo-preview-circle">
+                    <span class="photo-placeholder-icon">📷</span>
+                  </div>
+                  <input type="file" id="settings-photo-input" accept="image/*" style="display: none;" />
+                </div>
+                <div class="photo-upload-actions">
+                  <button type="button" id="btn-settings-choose-photo" class="btn-secondary-glass navigable focus-compact" tabindex="0">
+                    📁 Carica Foto
+                  </button>
+                  <button type="button" id="btn-settings-remove-photo" class="btn-danger-glass navigable focus-compact" style="display: none;" tabindex="0">
+                    ✕ Rimuovi
+                  </button>
+                  <span id="settings-photo-hint" class="photo-upload-hint">Foto quadrata compressa automaticamente (WebP)</span>
+                </div>
+              </div>
             </div>
           </div>
 

@@ -74,12 +74,102 @@ const SupabaseService = {
     return `fb_${Math.abs(hash)}`;
   },
 
+  // Client-side image compressor: square center-crop, resize to 256x256, output WebP (or JPEG) Blob
+  async compressImage(file, targetSize = 256, quality = 0.82) {
+    if (!file || !(file instanceof Blob)) {
+      throw new Error('File non valido.');
+    }
+
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Errore nella lettura del file.'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('Formato immagine non supportato o file corrotto.'));
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = targetSize;
+            canvas.height = targetSize;
+            const ctx = canvas.getContext('2d');
+
+            // Center square crop calculations
+            const sw = img.naturalWidth || img.width;
+            const sh = img.naturalHeight || img.height;
+            const size = Math.min(sw, sh);
+            const sx = (sw - size) / 2;
+            const sy = (sh - size) / 2;
+
+            // Background fill (for transparent PNGs converted to WebP/JPEG)
+            ctx.fillStyle = '#1e1e2d';
+            ctx.fillRect(0, 0, targetSize, targetSize);
+
+            // Draw center-cropped square
+            ctx.drawImage(img, sx, sy, size, size, 0, 0, targetSize, targetSize);
+
+            // Check WebP support
+            const canWebp = (canvas.toDataURL('image/webp').indexOf('data:image/webp') === 0);
+            const exportMime = canWebp ? 'image/webp' : 'image/jpeg';
+            const fileExt = canWebp ? 'webp' : 'jpg';
+
+            canvas.toBlob((blob) => {
+              if (blob) {
+                resolve({
+                  blob,
+                  mimeType: exportMime,
+                  fileExt,
+                  dataUrl: canvas.toDataURL(exportMime, quality)
+                });
+              } else {
+                reject(new Error('Compressione immagine fallita.'));
+              }
+            }, exportMime, quality);
+          } catch (err) {
+            reject(err);
+          }
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  },
+
+  // Upload compressed avatar blob to Supabase Storage 'avatars' bucket
+  async uploadAvatar(blob, fileExt = 'webp', userId = null) {
+    if (!blob) throw new Error('Dati immagine mancanti.');
+    const safeId = userId || (this.activeUser ? this.activeUser.id : `guest_${Date.now()}`);
+    const filePath = `avatar_${safeId}_${Date.now()}.${fileExt}`;
+    const url = `${CONFIG.SUPABASE.URL}/storage/v1/object/avatars/${filePath}`;
+
+    const headers = {
+      'apikey': CONFIG.SUPABASE.ANON_KEY,
+      'Authorization': `Bearer ${CONFIG.SUPABASE.ANON_KEY}`,
+      'Content-Type': blob.type || 'image/webp',
+      'x-upsert': 'true'
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: blob
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      throw new Error(`Errore caricamento storage (${response.status}): ${errText}`);
+    }
+
+    const publicUrl = `${CONFIG.SUPABASE.URL}/storage/v1/object/public/avatars/${filePath}`;
+    console.log('[SupabaseService] Avatar uploaded successfully:', publicUrl);
+    return publicUrl;
+  },
+
   // =========================================================================
   // Profiles & Authentication
   // =========================================================================
   async getProfiles() {
     try {
-      const profiles = await this.restRequest('profiles?select=id,username,avatar_emoji,created_at,last_active_at&order=last_active_at.desc');
+      const profiles = await this.restRequest('profiles?select=id,username,avatar_emoji,avatar_url,created_at,last_active_at&order=last_active_at.desc');
       return Array.isArray(profiles) ? profiles : [];
     } catch (e) {
       console.warn('[SupabaseService] Failed to load profiles from cloud:', e);
@@ -87,7 +177,7 @@ const SupabaseService = {
     }
   },
 
-  async createProfile(username, pin, avatarEmoji = '🍿') {
+  async createProfile(username, pin, avatarEmoji = '🍿', avatarUrl = null) {
     const cleanUser = String(username || '').trim();
     const cleanPin = String(pin || '').trim();
 
@@ -115,7 +205,8 @@ const SupabaseService = {
       body: JSON.stringify({
         username: cleanUser,
         pin_hash: pinHash,
-        avatar_emoji: avatarEmoji || '🍿'
+        avatar_emoji: avatarEmoji || '🍿',
+        avatar_url: avatarUrl || null
       })
     });
 
@@ -134,7 +225,7 @@ const SupabaseService = {
     }
 
     const pinHash = await this.hashPin(cleanPin);
-    const results = await this.restRequest(`profiles?id=eq.${profileId}&select=id,username,pin_hash,avatar_emoji`);
+    const results = await this.restRequest(`profiles?id=eq.${profileId}&select=id,username,pin_hash,avatar_emoji,avatar_url`);
 
     if (!results || results.length === 0) {
       throw new Error('Profilo non trovato.');
@@ -159,7 +250,8 @@ const SupabaseService = {
   async updateProfile(profileId, updates = {}) {
     const payload = {};
     if (updates.username) payload.username = String(updates.username).trim();
-    if (updates.avatar_emoji) payload.avatar_emoji = updates.avatar_emoji;
+    if (updates.avatar_emoji !== undefined) payload.avatar_emoji = updates.avatar_emoji;
+    if (updates.avatar_url !== undefined) payload.avatar_url = updates.avatar_url;
     if (updates.pin) {
       if (!/^\d{4}$/.test(String(updates.pin).trim())) {
         throw new Error('Il PIN deve essere di 4 cifre.');
@@ -178,7 +270,8 @@ const SupabaseService = {
       this.setActiveUser({
         ...this.activeUser,
         username: user.username,
-        avatar_emoji: user.avatar_emoji
+        avatar_emoji: user.avatar_emoji,
+        avatar_url: user.avatar_url
       });
     }
     return user;
@@ -219,7 +312,8 @@ const SupabaseService = {
         localStorage.setItem('roxy_active_user', JSON.stringify({
           id: user.id,
           username: user.username,
-          avatar_emoji: user.avatar_emoji
+          avatar_emoji: user.avatar_emoji,
+          avatar_url: user.avatar_url || null
         }));
       } else {
         localStorage.removeItem('roxy_active_user');

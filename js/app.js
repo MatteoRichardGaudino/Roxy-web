@@ -986,8 +986,35 @@ class RoxyApp {
       btnCancelCreate.addEventListener('click', () => this.closeCreateProfileModal());
     }
 
-    // Create Profile Emoji Picker
+    // Create Profile Avatar Selector (Emoji vs Photo)
+    this.createAvatarType = 'emoji';
+    this.createPhotoData = null;
     this.selectedNewEmoji = '🍿';
+
+    const createTabEmoji = document.getElementById('create-tab-emoji');
+    const createTabPhoto = document.getElementById('create-tab-photo');
+    const createContentEmoji = document.getElementById('create-content-emoji');
+    const createContentPhoto = document.getElementById('create-content-photo');
+
+    if (createTabEmoji && createTabPhoto) {
+      createTabEmoji.addEventListener('click', () => {
+        this.createAvatarType = 'emoji';
+        createTabEmoji.classList.add('active');
+        createTabPhoto.classList.remove('active');
+        if (createContentEmoji) createContentEmoji.style.display = 'block';
+        if (createContentPhoto) createContentPhoto.style.display = 'none';
+      });
+
+      createTabPhoto.addEventListener('click', () => {
+        this.createAvatarType = 'photo';
+        createTabPhoto.classList.add('active');
+        createTabEmoji.classList.remove('active');
+        if (createContentPhoto) createContentPhoto.style.display = 'block';
+        if (createContentEmoji) createContentEmoji.style.display = 'none';
+      });
+    }
+
+    // Create Profile Emoji Picker
     const emojiBtns = document.querySelectorAll('#emoji-picker .emoji-btn');
     emojiBtns.forEach(btn => {
       btn.addEventListener('click', () => {
@@ -997,18 +1024,160 @@ class RoxyApp {
       });
     });
 
-    // Settings Profile Emoji Picker
+    // Create Profile Photo Upload
+    const createPhotoInput = document.getElementById('create-photo-input');
+    const btnCreateChoosePhoto = document.getElementById('btn-create-choose-photo');
+    const createPhotoPreview = document.getElementById('create-photo-preview');
+    const btnCreateRemovePhoto = document.getElementById('btn-create-remove-photo');
+    const createPhotoHint = document.getElementById('create-photo-hint');
+
+    const triggerCreatePhotoSelect = () => {
+      if (createPhotoInput) createPhotoInput.click();
+    };
+
+    if (btnCreateChoosePhoto) btnCreateChoosePhoto.addEventListener('click', triggerCreatePhotoSelect);
+    if (createPhotoPreview) createPhotoPreview.addEventListener('click', triggerCreatePhotoSelect);
+
+    if (createPhotoInput) {
+      createPhotoInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        if (createPhotoHint) createPhotoHint.textContent = 'Elaborazione e compressione in corso...';
+        try {
+          const compressed = await SupabaseService.compressImage(file, 256, 0.82);
+          this.createPhotoData = compressed;
+          if (createPhotoPreview) {
+            createPhotoPreview.innerHTML = `<img src="${compressed.dataUrl}" class="profile-avatar-img" alt="Anteprima" />`;
+          }
+          if (btnCreateRemovePhoto) btnCreateRemovePhoto.style.display = 'inline-flex';
+          const sizeKb = Math.round(compressed.blob.size / 1024);
+          if (createPhotoHint) createPhotoHint.textContent = `Foto pronta (${sizeKb} KB, ottimizzata)`;
+        } catch (err) {
+          console.error('[Roxy] Errore compressione immagine:', err);
+          this.showToast(err.message || 'Errore elaborazione immagine.');
+          if (createPhotoHint) createPhotoHint.textContent = 'Errore nel caricamento della foto.';
+        }
+      });
+    }
+
+    if (btnCreateRemovePhoto) {
+      btnCreateRemovePhoto.addEventListener('click', () => {
+        this.createPhotoData = null;
+        if (createPhotoInput) createPhotoInput.value = '';
+        if (createPhotoPreview) createPhotoPreview.innerHTML = '<span class="photo-placeholder-icon">📷</span>';
+        btnCreateRemovePhoto.style.display = 'none';
+        if (createPhotoHint) createPhotoHint.textContent = 'Foto quadrata compressa automaticamente (WebP)';
+      });
+    }
+
+    // Settings Profile Avatar Selector (Emoji vs Photo)
+    this.settingsAvatarType = 'emoji';
+    this.settingsPhotoData = null;
+    this.settingsPhotoRemoved = false;
     this.selectedSettingsEmoji = '🍿';
+
+    const settingsTabEmoji = document.getElementById('settings-tab-emoji');
+    const settingsTabPhoto = document.getElementById('settings-tab-photo');
+    const settingsContentEmoji = document.getElementById('settings-content-emoji');
+    const settingsContentPhoto = document.getElementById('settings-content-photo');
+
+    if (settingsTabEmoji && settingsTabPhoto) {
+      settingsTabEmoji.addEventListener('click', () => {
+        this.settingsAvatarType = 'emoji';
+        settingsTabEmoji.classList.add('active');
+        settingsTabPhoto.classList.remove('active');
+        if (settingsContentEmoji) settingsContentEmoji.style.display = 'block';
+        if (settingsContentPhoto) settingsContentPhoto.style.display = 'none';
+        const avatarBig = document.getElementById('settings-current-avatar');
+        if (avatarBig) avatarBig.textContent = this.selectedSettingsEmoji || '🍿';
+      });
+
+      settingsTabPhoto.addEventListener('click', () => {
+        this.settingsAvatarType = 'photo';
+        settingsTabPhoto.classList.add('active');
+        settingsTabEmoji.classList.remove('active');
+        if (settingsContentPhoto) settingsContentPhoto.style.display = 'block';
+        if (settingsContentEmoji) settingsContentEmoji.style.display = 'none';
+        const avatarBig = document.getElementById('settings-current-avatar');
+        const user = SupabaseService.getActiveUser();
+        if (this.settingsPhotoData) {
+          if (avatarBig) avatarBig.innerHTML = `<img src="${this.settingsPhotoData.dataUrl}" class="profile-avatar-img" />`;
+        } else if (user && user.avatar_url && !this.settingsPhotoRemoved) {
+          if (avatarBig) avatarBig.innerHTML = `<img src="${user.avatar_url}" class="profile-avatar-img" />`;
+        }
+      });
+    }
+
+    // Settings Profile Emoji Picker
     const settingsEmojiBtns = document.querySelectorAll('#settings-emoji-picker .settings-emoji-btn');
     settingsEmojiBtns.forEach(btn => {
       btn.addEventListener('click', () => {
         settingsEmojiBtns.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         this.selectedSettingsEmoji = btn.getAttribute('data-emoji') || '🍿';
-        const avatarBig = document.getElementById('settings-current-avatar');
-        if (avatarBig) avatarBig.textContent = this.selectedSettingsEmoji;
+        if (this.settingsAvatarType === 'emoji') {
+          const avatarBig = document.getElementById('settings-current-avatar');
+          if (avatarBig) avatarBig.textContent = this.selectedSettingsEmoji;
+        }
       });
     });
+
+    // Settings Profile Photo Upload
+    const settingsPhotoInput = document.getElementById('settings-photo-input');
+    const btnSettingsChoosePhoto = document.getElementById('btn-settings-choose-photo');
+    const settingsPhotoPreview = document.getElementById('settings-photo-preview');
+    const btnSettingsRemovePhoto = document.getElementById('btn-settings-remove-photo');
+    const settingsPhotoHint = document.getElementById('settings-photo-hint');
+
+    const triggerSettingsPhotoSelect = () => {
+      if (settingsPhotoInput) settingsPhotoInput.click();
+    };
+
+    if (btnSettingsChoosePhoto) btnSettingsChoosePhoto.addEventListener('click', triggerSettingsPhotoSelect);
+    if (settingsPhotoPreview) settingsPhotoPreview.addEventListener('click', triggerSettingsPhotoSelect);
+
+    if (settingsPhotoInput) {
+      settingsPhotoInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        if (settingsPhotoHint) settingsPhotoHint.textContent = 'Elaborazione e compressione in corso...';
+        try {
+          const compressed = await SupabaseService.compressImage(file, 256, 0.82);
+          this.settingsPhotoData = compressed;
+          this.settingsPhotoRemoved = false;
+          if (settingsPhotoPreview) {
+            settingsPhotoPreview.innerHTML = `<img src="${compressed.dataUrl}" class="profile-avatar-img" alt="Anteprima" />`;
+          }
+          const avatarBig = document.getElementById('settings-current-avatar');
+          if (avatarBig) {
+            avatarBig.innerHTML = `<img src="${compressed.dataUrl}" class="profile-avatar-img" alt="Avatar" />`;
+          }
+          if (btnSettingsRemovePhoto) btnSettingsRemovePhoto.style.display = 'inline-flex';
+          const sizeKb = Math.round(compressed.blob.size / 1024);
+          if (settingsPhotoHint) settingsPhotoHint.textContent = `Foto pronta (${sizeKb} KB, ottimizzata)`;
+        } catch (err) {
+          console.error('[Roxy] Errore compressione immagine settings:', err);
+          this.showToast(err.message || 'Errore elaborazione immagine.');
+          if (settingsPhotoHint) settingsPhotoHint.textContent = 'Errore nel caricamento della foto.';
+        }
+      });
+    }
+
+    if (btnSettingsRemovePhoto) {
+      btnSettingsRemovePhoto.addEventListener('click', () => {
+        this.settingsPhotoData = null;
+        this.settingsPhotoRemoved = true;
+        if (settingsPhotoInput) settingsPhotoInput.value = '';
+        if (settingsPhotoPreview) settingsPhotoPreview.innerHTML = '<span class="photo-placeholder-icon">📷</span>';
+        btnSettingsRemovePhoto.style.display = 'none';
+        if (settingsPhotoHint) settingsPhotoHint.textContent = 'Foto rimossa. Scegline un\'altra o torna a Emoji.';
+        // Revert header avatar to emoji
+        const avatarBig = document.getElementById('settings-current-avatar');
+        if (avatarBig) avatarBig.textContent = this.selectedSettingsEmoji || '🍿';
+        // Auto-switch to emoji tab
+        if (settingsTabEmoji) settingsTabEmoji.click();
+      });
+    }
 
     // Create Profile Submit
     const btnSubmitCreate = document.getElementById('btn-submit-create-profile');
@@ -1077,12 +1246,28 @@ class RoxyApp {
     });
   }
 
+  renderAvatarHtml(user, className = 'profile-avatar-img', fallbackEmoji = '🍿') {
+    if (user && user.avatar_url) {
+      return `<img src="${user.avatar_url}" class="${className}" alt="Avatar" onerror="this.outerHTML='${user.avatar_emoji || fallbackEmoji}'" />`;
+    }
+    return (user && user.avatar_emoji) ? user.avatar_emoji : fallbackEmoji;
+  }
+
+  setAvatarElement(el, user, className = 'profile-avatar-img', fallbackEmoji = '🍿') {
+    if (!el) return;
+    if (user && user.avatar_url) {
+      el.innerHTML = `<img src="${user.avatar_url}" class="${className}" alt="Avatar" onerror="this.outerHTML='${user.avatar_emoji || fallbackEmoji}'" />`;
+    } else {
+      el.textContent = (user && user.avatar_emoji) ? user.avatar_emoji : fallbackEmoji;
+    }
+  }
+
   updateHeaderProfileBadge(user) {
     const avatarEl = document.getElementById('header-user-avatar');
     const nameEl = document.getElementById('header-user-name');
     if (avatarEl && nameEl) {
       if (user) {
-        avatarEl.textContent = user.avatar_emoji || '🍿';
+        this.setAvatarElement(avatarEl, user);
         nameEl.textContent = user.username || 'Amico';
       } else {
         avatarEl.textContent = '🍿';
@@ -1116,7 +1301,7 @@ class RoxyApp {
       } else {
         grid.innerHTML = profiles.map(p => `
           <div class="profile-card navigable focus-compact" data-id="${p.id}" tabindex="0">
-            <div class="profile-avatar-circle">${p.avatar_emoji || '🍿'}</div>
+            <div class="profile-avatar-circle">${this.renderAvatarHtml(p)}</div>
             <div class="profile-card-name">${p.username}</div>
           </div>
         `).join('');
@@ -1158,7 +1343,7 @@ class RoxyApp {
 
     if (!modal) return;
 
-    if (avatar) avatar.textContent = profile.avatar_emoji || '🍿';
+    if (avatar) this.setAvatarElement(avatar, profile);
     if (username) username.textContent = profile.username;
     if (errorMsg) errorMsg.style.display = 'none';
 
@@ -1251,6 +1436,38 @@ class RoxyApp {
     if (pinInput) pinInput.value = '';
     if (errorMsg) errorMsg.style.display = 'none';
 
+    // Reset avatar type to emoji
+    this.createAvatarType = 'emoji';
+    this.createPhotoData = null;
+    const createTabEmoji = document.getElementById('create-tab-emoji');
+    const createTabPhoto = document.getElementById('create-tab-photo');
+    const createContentEmoji = document.getElementById('create-content-emoji');
+    const createContentPhoto = document.getElementById('create-content-photo');
+    const createPhotoInput = document.getElementById('create-photo-input');
+    const createPhotoPreview = document.getElementById('create-photo-preview');
+    const btnCreateRemovePhoto = document.getElementById('btn-create-remove-photo');
+    const createPhotoHint = document.getElementById('create-photo-hint');
+
+    if (createTabEmoji) createTabEmoji.classList.add('active');
+    if (createTabPhoto) createTabPhoto.classList.remove('active');
+    if (createContentEmoji) createContentEmoji.style.display = 'block';
+    if (createContentPhoto) createContentPhoto.style.display = 'none';
+    if (createPhotoInput) createPhotoInput.value = '';
+    if (createPhotoPreview) createPhotoPreview.innerHTML = '<span class="photo-placeholder-icon">📷</span>';
+    if (btnCreateRemovePhoto) btnCreateRemovePhoto.style.display = 'none';
+    if (createPhotoHint) createPhotoHint.textContent = 'Foto quadrata compressa automaticamente (WebP)';
+
+    // Reset emoji selection
+    this.selectedNewEmoji = '🍿';
+    const emojiBtns = document.querySelectorAll('#create-emoji-picker .profile-emoji-btn');
+    emojiBtns.forEach(btn => {
+      if (btn.getAttribute('data-emoji') === '🍿') {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+
     modal.style.display = 'flex';
     window.navigatorInstance.setModal(true, modal);
 
@@ -1267,6 +1484,7 @@ class RoxyApp {
     const nameInput = document.getElementById('new-profile-name');
     const pinInput = document.getElementById('new-profile-pin');
     const errorMsg = document.getElementById('create-profile-error');
+    const submitBtn = document.getElementById('btn-submit-create-profile');
 
     const username = nameInput ? nameInput.value.trim() : '';
     const pin = pinInput ? pinInput.value.trim() : '';
@@ -1275,7 +1493,20 @@ class RoxyApp {
     if (errorMsg) errorMsg.style.display = 'none';
 
     try {
-      const newUser = await SupabaseService.createProfile(username, pin, emoji);
+      if (submitBtn) submitBtn.disabled = true;
+
+      let avatarUrl = null;
+      if (this.createAvatarType === 'photo' && this.createPhotoData && this.createPhotoData.blob) {
+        if (errorMsg) {
+          errorMsg.textContent = 'Caricamento foto in corso...';
+          errorMsg.style.display = 'block';
+          errorMsg.style.color = 'var(--primary-indigo-light)';
+        }
+        const ext = this.createPhotoData.format || 'webp';
+        avatarUrl = await SupabaseService.uploadAvatar(this.createPhotoData.blob, ext);
+      }
+
+      const newUser = await SupabaseService.createProfile(username, pin, emoji, avatarUrl);
       const modal = document.getElementById('create-profile-modal');
       if (modal) modal.style.display = 'none';
       this.closeProfileSelectorModal();
@@ -1284,7 +1515,10 @@ class RoxyApp {
       if (errorMsg) {
         errorMsg.textContent = e.message || 'Errore durante la creazione del profilo.';
         errorMsg.style.display = 'block';
+        errorMsg.style.color = '#ef4444';
       }
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
     }
   }
 
@@ -1306,11 +1540,52 @@ class RoxyApp {
     if (!modal) return;
 
     this.selectedSettingsEmoji = user.avatar_emoji || '🍿';
-    if (avatarEl) avatarEl.textContent = this.selectedSettingsEmoji;
+    this.setAvatarElement(avatarEl, user);
     if (titleEl) titleEl.textContent = `Profilo di ${user.username}`;
     if (nameInput) nameInput.value = user.username || '';
     if (pinInput) pinInput.value = '';
     if (errorMsg) errorMsg.style.display = 'none';
+
+    // Reset settings photo state
+    this.settingsPhotoData = null;
+    this.settingsPhotoRemoved = false;
+
+    const settingsTabEmoji = document.getElementById('settings-tab-emoji');
+    const settingsTabPhoto = document.getElementById('settings-tab-photo');
+    const settingsContentEmoji = document.getElementById('settings-content-emoji');
+    const settingsContentPhoto = document.getElementById('settings-content-photo');
+    const settingsPhotoInput = document.getElementById('settings-photo-input');
+    const settingsPhotoPreview = document.getElementById('settings-photo-preview');
+    const btnSettingsRemovePhoto = document.getElementById('btn-settings-remove-photo');
+    const settingsPhotoHint = document.getElementById('settings-photo-hint');
+
+    if (settingsPhotoInput) settingsPhotoInput.value = '';
+
+    if (user.avatar_url) {
+      // User currently has a custom photo
+      this.settingsAvatarType = 'photo';
+      if (settingsTabPhoto) settingsTabPhoto.classList.add('active');
+      if (settingsTabEmoji) settingsTabEmoji.classList.remove('active');
+      if (settingsContentPhoto) settingsContentPhoto.style.display = 'block';
+      if (settingsContentEmoji) settingsContentEmoji.style.display = 'none';
+      if (settingsPhotoPreview) {
+        settingsPhotoPreview.innerHTML = `<img src="${user.avatar_url}" class="profile-avatar-img" alt="Foto attuale" />`;
+      }
+      if (btnSettingsRemovePhoto) btnSettingsRemovePhoto.style.display = 'inline-flex';
+      if (settingsPhotoHint) settingsPhotoHint.textContent = 'Foto profilo attiva. Clicca per cambiarla o rimuoverla.';
+    } else {
+      // User has emoji avatar
+      this.settingsAvatarType = 'emoji';
+      if (settingsTabEmoji) settingsTabEmoji.classList.add('active');
+      if (settingsTabPhoto) settingsTabPhoto.classList.remove('active');
+      if (settingsContentEmoji) settingsContentEmoji.style.display = 'block';
+      if (settingsContentPhoto) settingsContentPhoto.style.display = 'none';
+      if (settingsPhotoPreview) {
+        settingsPhotoPreview.innerHTML = '<span class="photo-placeholder-icon">📷</span>';
+      }
+      if (btnSettingsRemovePhoto) btnSettingsRemovePhoto.style.display = 'none';
+      if (settingsPhotoHint) settingsPhotoHint.textContent = 'Foto quadrata compressa automaticamente (WebP)';
+    }
 
     const emojiBtns = document.querySelectorAll('#settings-emoji-picker .settings-emoji-btn');
     emojiBtns.forEach(btn => {
@@ -1342,6 +1617,7 @@ class RoxyApp {
     const nameInput = document.getElementById('settings-profile-name');
     const pinInput = document.getElementById('settings-profile-pin');
     const errorMsg = document.getElementById('settings-profile-error');
+    const saveBtn = document.getElementById('btn-settings-save');
 
     const newName = nameInput ? nameInput.value.trim() : '';
     const newPin = pinInput ? pinInput.value.trim() : '';
@@ -1367,12 +1643,34 @@ class RoxyApp {
       updates.pin = newPin;
     }
 
-    if (Object.keys(updates).length === 0) {
-      this.closeProfileSettingsModal();
-      return;
-    }
-
     try {
+      if (saveBtn) saveBtn.disabled = true;
+
+      // Handle Avatar changes
+      if (this.settingsAvatarType === 'photo') {
+        if (this.settingsPhotoData && this.settingsPhotoData.blob) {
+          // A new photo was chosen
+          if (errorMsg) {
+            errorMsg.textContent = 'Caricamento nuova foto...';
+            errorMsg.style.display = 'block';
+            errorMsg.style.color = 'var(--primary-indigo-light)';
+          }
+          const ext = this.settingsPhotoData.format || 'webp';
+          const newUrl = await SupabaseService.uploadAvatar(this.settingsPhotoData.blob, ext, user.id);
+          updates.avatar_url = newUrl;
+        }
+      } else {
+        // User switched back to emoji or clicked remove photo
+        if (user.avatar_url) {
+          updates.avatar_url = null;
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        this.closeProfileSettingsModal();
+        return;
+      }
+
       const updatedUser = await SupabaseService.updateProfile(user.id, updates);
       this.updateHeaderProfileBadge(updatedUser || SupabaseService.getActiveUser());
       this.closeProfileSettingsModal();
@@ -1381,7 +1679,10 @@ class RoxyApp {
       if (errorMsg) {
         errorMsg.textContent = e.message || 'Errore durante l\'aggiornamento del profilo.';
         errorMsg.style.display = 'block';
+        errorMsg.style.color = '#ef4444';
       }
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
     }
   }
 
