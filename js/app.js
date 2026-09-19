@@ -51,7 +51,14 @@ class RoxyApp {
       setTimeout(() => this.showProfileSelectorModal(), 400);
     }
 
-    // 4. Load initial home page catalog progressively
+    // 4. Background fetch of community social activity (updates card viewer stacks eagerly)
+    if (window.SupabaseService && typeof SupabaseService.loadGlobalSocialActivity === 'function') {
+      SupabaseService.loadGlobalSocialActivity().then(() => {
+        this.updateCardsSocialStacks();
+      }).catch(() => {});
+    }
+
+    // 5. Load initial home page catalog progressively
     this.loadHomeCatalog();
   }
 
@@ -176,6 +183,9 @@ class RoxyApp {
       // 1. Render Continue Watching immediately from local storage
       this.renderContinueWatchingRow();
 
+      // 1b. Render Community feed row
+      this.renderCommunityRow();
+
       // Helper to render each row into its designated slot as soon as its request completes
       const renderProgressiveRow = (slotId, title, itemsPromise, options = {}) => {
         let slot = document.getElementById(slotId);
@@ -246,6 +256,9 @@ class RoxyApp {
         ${items.filter(i => i.poster_path).map(item => this.getMediaCardHtml(item)).join('')}
       </div>
     `;
+
+    // Ensure social viewer avatar stack is up to date
+    this.updateCardsSocialStacks(slotElement);
 
     // Attach click listeners: play button starts playback, card body opens details modal
     slotElement.querySelectorAll('.media-card').forEach(card => {
@@ -387,7 +400,7 @@ class RoxyApp {
     if (badgesContainer) {
       const year = (item.release_date || item.first_air_date || '').substring(0, 4);
       const rating = item.vote_average ? item.vote_average.toFixed(1) : '7.5';
-      const typeLabel = (item.media_type === 'tv' || item.name) ? 'SERIE TV' : 'FILM';
+      const typeLabel = (item.media_type === 'tv' || (item.media_type !== 'movie' && item.name && !item.title)) ? 'SERIE TV' : 'FILM';
 
       badgesContainer.innerHTML = `
         <span class="badge-indigo">${typeLabel}</span>
@@ -477,12 +490,20 @@ class RoxyApp {
 
     const title = isSaturn ? AnimeSaturnService.cleanAnimeTitle(item.title || item.name) : (item.title || item.name);
     const year = (item.release_date || item.first_air_date || '').substring(0, 4);
-    const mediaLabel = isSaturn ? (item.anime_type || 'Anime') : (item.media_type === 'tv' || item.name ? 'Serie TV' : 'Film');
+    const mediaLabel = isSaturn ? (item.anime_type || 'Anime') : ((item.media_type === 'tv' || (item.media_type !== 'movie' && item.name && !item.title)) ? 'Serie TV' : 'Film');
+
+    // Stacked social viewers on card (friends who are watching or have watched)
+    const socialViewers = (window.SupabaseService && typeof SupabaseService.getMediaSocialActivity === 'function')
+      ? SupabaseService.getMediaSocialActivity(item.id)
+      : [];
+
+    const socialStackHtml = this.generateSocialStackHtml(socialViewers);
 
     return `
       <div class="media-card navigable ${isAvailable ? '' : 'unavailable'}" tabindex="0" data-id="${item.id}" data-type="${item.media_type || (isSaturn ? 'anime' : 'movie')}" data-source="${item.source || 'tmdb'}">
         ${topLeftBadges ? `<div class="card-badge-top-left">${topLeftBadges}</div>` : ''}
         <div class="card-badge-top">${topBadges}</div>
+        ${socialStackHtml}
         <img src="${posterUrl}" alt="${title}" loading="lazy" />
         ${isAvailable ? `
         <div class="card-play-indicator">
@@ -498,6 +519,76 @@ class RoxyApp {
         </div>
       </div>
     `;
+  }
+
+  generateSocialStackHtml(socialViewers) {
+    if (!socialViewers || socialViewers.length === 0) return '';
+    const maxShown = 3;
+    const displayViewers = socialViewers.slice(0, maxShown);
+    const remaining = socialViewers.length - maxShown;
+
+    const avatarsHtml = displayViewers.map(v => {
+      const isCompleted = v.status === 'completed';
+      const isDropped = v.status === 'dropped';
+      let titleTooltip = `${v.username}: Sta guardando`;
+      let statusClass = 'is-watching';
+
+      if (isDropped) {
+        titleTooltip = `${v.username}: Ha droppato`;
+        statusClass = 'is-dropped';
+      } else if (isCompleted) {
+        titleTooltip = `${v.username}: Ha visto`;
+        statusClass = 'is-completed';
+      }
+
+      const avatarContent = v.avatar_url
+        ? `<img src="${v.avatar_url}" class="stacked-avatar-img" alt="${this.escapeHtml(v.username)}" onerror="this.outerHTML='${this.escapeHtml(v.avatar_emoji || '🍿')}'" />`
+        : this.escapeHtml(v.avatar_emoji || '🍿');
+
+      return `
+        <div class="card-social-avatar ${statusClass}" title="${this.escapeHtml(titleTooltip)}">
+          ${avatarContent}
+        </div>
+      `;
+    }).join('');
+
+    const remainingBadge = remaining > 0 ? `<div class="card-social-avatar card-social-more">+${remaining}</div>` : '';
+
+    return `
+      <div class="card-social-stack">
+        ${avatarsHtml}
+        ${remainingBadge}
+      </div>
+    `;
+  }
+
+  updateCardsSocialStacks(container = document) {
+    if (!window.SupabaseService || typeof SupabaseService.getMediaSocialActivity !== 'function') return;
+
+    const cards = container.querySelectorAll ? container.querySelectorAll('.media-card[data-id]') : [];
+    cards.forEach(card => {
+      const mediaId = card.getAttribute('data-id');
+      if (!mediaId) return;
+
+      const socialViewers = SupabaseService.getMediaSocialActivity(mediaId);
+      const existingStack = card.querySelector('.card-social-stack');
+
+      if (socialViewers && socialViewers.length > 0) {
+        const stackHtml = this.generateSocialStackHtml(socialViewers);
+        if (existingStack) {
+          existingStack.outerHTML = stackHtml;
+        } else {
+          const img = card.querySelector('img');
+          if (img) {
+            img.insertAdjacentHTML('beforebegin', stackHtml);
+          } else {
+            card.insertAdjacentHTML('afterbegin', stackHtml);
+          }
+        }
+      } else if (existingStack) {
+        existingStack.remove();
+      }
+    });
   }
 
   // =========================================================================
@@ -594,6 +685,193 @@ class RoxyApp {
   }
 
   // =========================================================================
+  // Community Row (Friend comments, recommendations & watching activity)
+  // =========================================================================
+  escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  formatTimeAgo(timestamp) {
+    if (!timestamp) return '';
+    const diffSec = Math.floor((Date.now() - timestamp) / 1000);
+    if (diffSec < 60) return 'poco fa';
+    const mins = Math.floor(diffSec / 60);
+    if (mins < 60) return `${mins}m fa`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h fa`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}g fa`;
+    return new Date(timestamp).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+  }
+
+  async renderCommunityRow() {
+    if (this._communityRowPromise) {
+      return this._communityRowPromise;
+    }
+    this._communityRowPromise = this._executeRenderCommunityRow().finally(() => {
+      this._communityRowPromise = null;
+    });
+    return this._communityRowPromise;
+  }
+
+  async _executeRenderCommunityRow() {
+    const rowsWrapper = document.getElementById('home-rows-container');
+    if (!rowsWrapper) return;
+
+    // Purge any preexisting duplicate community rows
+    const staleRows = rowsWrapper.querySelectorAll('#community-row');
+    if (staleRows.length > 1) {
+      for (let i = 1; i < staleRows.length; i++) {
+        staleRows[i].remove();
+      }
+    }
+
+    try {
+      const feedItems = await SupabaseService.getCommunityFeed();
+
+      // Whenever fresh community feed arrives, refresh social stack avatars across all cards!
+      this.updateCardsSocialStacks();
+
+      const currentWrapper = document.getElementById('home-rows-container');
+      if (!currentWrapper) return;
+
+      const currentRows = currentWrapper.querySelectorAll('#community-row');
+      if (!feedItems || feedItems.length === 0) {
+        currentRows.forEach(el => el.remove());
+        return;
+      }
+
+      // Keep at most 1 community row element
+      if (currentRows.length > 1) {
+        for (let i = 1; i < currentRows.length; i++) {
+          currentRows[i].remove();
+        }
+      }
+
+      let container = currentWrapper.querySelector('#community-row');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'community-row';
+        container.className = 'content-row';
+
+        // Insert right after continue-watching-row if present, or as first element
+        const contRow = document.getElementById('continue-watching-row');
+        if (contRow && contRow.nextSibling) {
+          currentWrapper.insertBefore(container, contRow.nextSibling);
+        } else if (contRow) {
+          currentWrapper.appendChild(container);
+        } else {
+          currentWrapper.insertBefore(container, currentWrapper.firstChild);
+        }
+      }
+
+      container.innerHTML = `
+        <div class="row-header">
+          <h2 class="row-title">
+            <span>👥 Community</span>
+            <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Attività e consigli degli amici</span>
+          </h2>
+        </div>
+        <div class="row-carousel" id="carousel-community">
+          ${feedItems.map(item => {
+            const timeAgo = this.formatTimeAgo(item.timestamp);
+            const isRec = item.feedType === 'recommendation';
+            const isWatching = item.feedType === 'watching';
+            const isSaturn = (item.source === 'animesaturn' || String(item.mediaId).startsWith('saturn_'));
+            const cleanTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
+
+            const posterUrl = (item.posterPath || item.backdropPath || '');
+            const imgUrl = (posterUrl.startsWith('http')) 
+              ? posterUrl 
+              : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w185') : 'assets/icon.png');
+
+            let actionText = 'ha commentato';
+            let actionClass = '';
+            let bodyContent = `<div class="community-card-body">"${this.escapeHtml(item.text || '')}"</div>`;
+
+            if (isRec) {
+              actionText = 'consiglia assolutamente';
+              actionClass = 'is-rec';
+              bodyContent = `
+                <div class="community-card-body rec-body">
+                  <span>★ Da vedere assolutamente!</span>
+                </div>
+              `;
+            } else if (isWatching) {
+              const isCompleted = item.watchStatus === 'completed';
+              const isDropped = item.watchStatus === 'dropped';
+              actionText = item.actionText || (isDropped ? 'ha droppato' : (isCompleted ? 'ha visto' : 'sta guardando'));
+              actionClass = item.actionClass || (isDropped ? 'is-dropped' : (isCompleted ? 'is-completed' : 'is-watching'));
+              const defaultText = isDropped ? 'Ha abbandonato la visione (non piaciuto)' : (isCompleted ? 'Ha completato la visione' : 'In riproduzione');
+              const bodyColor = isDropped ? '#f59e0b' : 'var(--text-med)';
+              bodyContent = `<div class="community-card-body" style="color: ${bodyColor}; font-size: 0.88rem;">${this.escapeHtml(item.text || defaultText)}</div>`;
+            }
+
+            const avatarHtml = item.avatar_url 
+              ? `<img src="${item.avatar_url}" class="profile-avatar-img" alt="${this.escapeHtml(item.username)}" onerror="this.outerHTML='${this.escapeHtml(item.avatar_emoji || '🍿')}'" />`
+              : this.escapeHtml(item.avatar_emoji || '🍿');
+
+            const cardTypeClass = isRec 
+              ? 'type-recommendation' 
+              : (item.watchStatus === 'dropped' ? 'type-dropped' : (item.watchStatus === 'completed' ? 'type-completed' : 'type-watching'));
+
+            return `
+              <div class="community-feed-card navigable focus-compact ${cardTypeClass}" tabindex="0" data-media-id="${item.mediaId}" data-source="${item.source || 'tmdb'}" data-media-type="${item.mediaType || 'movie'}" data-slug="${item.slug || ''}">
+                <div class="community-card-top">
+                  <div class="community-user-info">
+                    <div class="community-user-avatar">${avatarHtml}</div>
+                    <div class="community-user-text">
+                      <div class="community-user-name">${this.escapeHtml(item.username || 'Amico')}</div>
+                      <div class="community-action-tag ${actionClass}">${actionText}</div>
+                    </div>
+                  </div>
+                  <div class="community-time-ago">${timeAgo}</div>
+                </div>
+
+                ${bodyContent}
+
+                <div class="community-card-media-chip">
+                  <img src="${imgUrl}" alt="${this.escapeHtml(cleanTitle)}" class="community-media-thumb" loading="lazy" />
+                  <div class="community-media-meta">
+                    <div class="community-media-title">${isSaturn ? '🪐 ' : ''}${this.escapeHtml(cleanTitle)}</div>
+                    <div class="community-media-sub">${isSaturn ? 'Anime' : (item.mediaType === 'tv' ? 'Serie TV' : 'Film')}</div>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+
+      // Attach click events: opening the media details modal
+      container.querySelectorAll('.community-feed-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const mediaId = card.getAttribute('data-media-id');
+          const source = card.getAttribute('data-source');
+          const mediaType = card.getAttribute('data-media-type');
+          const slug = card.getAttribute('data-slug');
+          this.lastFocusedElement = card;
+          this.openDetailsModal({
+            id: mediaId,
+            source: source,
+            media_type: mediaType,
+            slug: slug
+          });
+        });
+      });
+    } catch (e) {
+      console.warn('[Roxy] Failed to render community row:', e);
+      if (container) container.remove();
+    }
+  }
+
+  // =========================================================================
   // Horizontal Content Rows
   // =========================================================================
   renderRow(title, items, targetContainerId) {
@@ -616,6 +894,7 @@ class RoxyApp {
     `;
 
     parent.appendChild(row);
+    this.updateCardsSocialStacks(row);
 
     // Attach click listeners: play button starts playback, card body opens details modal
     row.querySelectorAll('.media-card').forEach(card => {
@@ -674,9 +953,11 @@ class RoxyApp {
       const fetched = await AnimeSaturnService.getAnimeDetails(slug);
       data = fetched || item;
     } else {
-      const mediaType = item.media_type || (item.name ? 'tv' : 'movie');
+      const mediaType = item.media_type || (item.name && !item.title ? 'tv' : 'movie');
       const fullDetails = await TMDBService.getDetails(item.id, mediaType);
       data = fullDetails || item;
+      // Ensure media_type is explicitly retained
+      if (!data.media_type) data.media_type = mediaType;
     }
 
     // Verify availability against VixSrc catalog list (Saturn is always available)
@@ -713,10 +994,10 @@ class RoxyApp {
         const year = (data.release_date || data.first_air_date || '').substring(0, 4);
         const rating = data.vote_average ? data.vote_average.toFixed(1) : '7.5';
         const duration = data.runtime ? `${data.runtime} min` : (data.number_of_seasons ? `${data.number_of_seasons} Stagioni` : '');
-        const mediaType = data.media_type || (data.name ? 'tv' : 'movie');
+        const isTvModal = (data.media_type === 'tv' || (data.media_type !== 'movie' && (data.number_of_seasons !== undefined || (data.name && !data.title))));
 
         badgesEl.innerHTML = `
-          <span class="badge-indigo">${mediaType === 'tv' ? 'SERIE TV' : 'FILM'}</span>
+          <span class="badge-indigo">${isTvModal ? 'SERIE TV' : 'FILM'}</span>
           ${!isAvailable ? `<span class="badge-unavailable">NON DISPONIBILE</span>` : ''}
           <span class="badge-rating">★ ${rating}</span>
           ${duration ? `<span class="badge-quality">${duration}</span>` : ''}
@@ -724,6 +1005,62 @@ class RoxyApp {
         `;
       }
     }
+
+    // Populate compact social viewers strip before overview
+    const modalSocialViewers = document.getElementById('modal-social-viewers');
+    const refreshModalSocialViewers = () => {
+      if (!modalSocialViewers) return;
+      const viewers = (window.SupabaseService && typeof SupabaseService.getMediaSocialActivity === 'function')
+        ? SupabaseService.getMediaSocialActivity(data.id, true)
+        : [];
+
+      if (viewers && viewers.length > 0) {
+        modalSocialViewers.style.display = 'flex';
+        modalSocialViewers.innerHTML = `
+          <div class="social-viewers-header">
+            <span class="social-viewers-icon">👥</span>
+            <span class="social-viewers-title">Amici & Community (${viewers.length})</span>
+          </div>
+          <div class="social-viewers-list">
+            ${viewers.map(v => {
+              const isDropped = v.status === 'dropped';
+              const isCompleted = v.status === 'completed';
+              const avatarHtml = v.avatar_url
+                ? `<img src="${v.avatar_url}" class="social-viewer-avatar-img" alt="${this.escapeHtml(v.username)}" onerror="this.outerHTML='${this.escapeHtml(v.avatar_emoji || '🍿')}'" />`
+                : this.escapeHtml(v.avatar_emoji || '🍿');
+
+              let statusClass = 'status-watching';
+              let badgeClass = 'badge-watching';
+              let statusLabel = '▶ Sta guardando';
+
+              if (isDropped) {
+                statusClass = 'status-dropped';
+                badgeClass = 'badge-dropped';
+                statusLabel = '👎 Ha droppato';
+              } else if (isCompleted) {
+                statusClass = 'status-completed';
+                badgeClass = 'badge-completed';
+                statusLabel = '✓ Ha visto';
+              }
+
+              return `
+                <div class="social-viewer-pill ${statusClass}">
+                  <div class="social-viewer-avatar">${avatarHtml}</div>
+                  <span class="social-viewer-name">${this.escapeHtml(v.username)}</span>
+                  <span class="social-viewer-badge ${badgeClass}">
+                    ${statusLabel}
+                  </span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+      } else {
+        modalSocialViewers.style.display = 'none';
+        modalSocialViewers.innerHTML = '';
+      }
+    };
+    refreshModalSocialViewers();
 
     if (overviewEl) {
       overviewEl.textContent = data.overview || 'Nessuna sinossi disponibile.';
@@ -794,7 +1131,7 @@ class RoxyApp {
             });
           });
         });
-      } else if (!isSaturn && (data.media_type === 'tv' || data.name) && data.seasons && data.seasons.length > 0) {
+      } else if (!isSaturn && (data.media_type === 'tv' || (data.media_type !== 'movie' && (data.name && !data.title))) && data.seasons && data.seasons.length > 0) {
         episodesContainer.style.display = 'flex';
         const validSeasons = data.seasons.filter(s => s.season_number > 0);
         const seasonsList = validSeasons.length > 0 ? validSeasons : data.seasons;
@@ -893,11 +1230,11 @@ class RoxyApp {
       if (isAvailable) {
         btnPlay.className = 'btn-primary-play navigable';
         
-        const isTv = (data.media_type === 'tv' || isSaturn || !!data.name || (data.number_of_seasons !== undefined));
+        const isTv = !isSaturn && (data.media_type === 'tv' || (data.media_type !== 'movie' && (data.number_of_seasons !== undefined || (!!data.name && !data.title))));
         const savedProgress = StorageService.getItemProgress(data.id);
         
         let playBtnLabel = isSaturn ? 'Riproduci Ep. 1' : 'Riproduci';
-        let playPayload = isSaturn ? { ...data, episode: 1 } : data;
+        let playPayload = isSaturn ? { ...data, episode: 1 } : (isTv ? { ...data, media_type: 'tv', season: 1, episode: 1 } : { ...data, media_type: 'movie', season: 0, episode: 0 });
         let playResumeTime = null;
 
         if (savedProgress && savedProgress.currentTime > 5 && savedProgress.progress < 95) {
@@ -912,7 +1249,7 @@ class RoxyApp {
             playPayload = { ...data, media_type: 'tv', season: savedProgress.season || 1, episode: savedProgress.episode || 1 };
           } else {
             playBtnLabel = `Riprendi da ${currentMins}m`;
-            playPayload = data;
+            playPayload = { ...data, media_type: 'movie', season: 0, episode: 0 };
           }
         }
 
@@ -940,9 +1277,11 @@ class RoxyApp {
       };
     }
 
+    const mediaId = String(data.id);
+
     // "Rimuovi da Continua a guardare" Button Handler
     const btnRemoveContinue = document.getElementById('modal-btn-remove-continue');
-    const isContinueWatching = StorageService.getContinueWatching().some(i => String(i.id) === String(data.id));
+    const isContinueWatching = StorageService.getContinueWatching().some(i => String(i.id) === mediaId);
     if (btnRemoveContinue) {
       if (isContinueWatching) {
         btnRemoveContinue.style.display = 'inline-flex';
@@ -958,6 +1297,351 @@ class RoxyApp {
       } else {
         btnRemoveContinue.style.display = 'none';
       }
+    }
+
+    // "Droppa" (Pollice in giù / Giallo-Arancione) Button Handler
+    // Mostrato solo se l'utente sta già guardando il contenuto, o l'ha già visto/droppato
+    const btnDrop = document.getElementById('modal-btn-drop');
+    if (btnDrop) {
+      const dropLabel = btnDrop.querySelector('.drop-label');
+      const itemProgress = StorageService.getItemProgress(mediaId);
+      const hasProgress = !!(itemProgress && itemProgress.currentTime > 0);
+      let isDropped = StorageService.isDropped(mediaId);
+      const activeUser = (window.SupabaseService && typeof SupabaseService.getActiveUser === 'function')
+        ? SupabaseService.getActiveUser()
+        : null;
+      const activeUserId = activeUser ? String(activeUser.id) : null;
+      const userActivity = (activeUserId && typeof SupabaseService.getMediaSocialActivity === 'function')
+        ? (SupabaseService.getMediaSocialActivity(mediaId, true) || []).find(v => v.userId === activeUserId)
+        : null;
+
+      const isUserWatchingOrWatched = hasProgress || isContinueWatching || isDropped || !!userActivity;
+
+      const updateDropUI = (dropped) => {
+        if (dropped) {
+          btnDrop.classList.add('is-dropped');
+          if (dropLabel) dropLabel.textContent = 'Droppato';
+          btnDrop.setAttribute('title', 'Contenuto droppato (clicca per ripristinare)');
+        } else {
+          btnDrop.classList.remove('is-dropped');
+          if (dropLabel) dropLabel.textContent = 'Droppa';
+          btnDrop.setAttribute('title', 'Droppa contenuto (non piaciuto)');
+        }
+      };
+
+      if (isUserWatchingOrWatched) {
+        btnDrop.style.display = 'inline-flex';
+        updateDropUI(isDropped);
+
+        if (activeUser) {
+          SupabaseService.isMediaDropped(mediaId).then(cloudDropped => {
+            if (typeof cloudDropped === 'boolean' && cloudDropped !== isDropped) {
+              isDropped = cloudDropped;
+              StorageService.setMediaDropped(mediaId, cloudDropped);
+              updateDropUI(cloudDropped);
+              refreshModalSocialViewers();
+            }
+          }).catch(() => {});
+        }
+
+        btnDrop.onclick = async () => {
+          btnDrop.disabled = true;
+          try {
+            const nextDropped = !isDropped;
+            isDropped = nextDropped;
+            StorageService.setMediaDropped(mediaId, nextDropped);
+            updateDropUI(nextDropped);
+
+            if (activeUser) {
+              await SupabaseService.setMediaDropped(mediaId, nextDropped, data);
+            }
+
+            if (nextDropped) {
+              this.showToast(`Hai droppato "${data.title || data.name}". 👎`);
+              if (btnRemoveContinue) {
+                btnRemoveContinue.style.display = 'none';
+              }
+            } else {
+              this.showToast(`Rimosso lo stato droppato per "${data.title || data.name}".`);
+            }
+
+            this.renderContinueWatchingRow();
+            this.renderCommunityRow();
+            this.updateCardsSocialStacks();
+            refreshModalSocialViewers();
+          } catch (err) {
+            console.error('[Roxy] Error updating dropped status:', err);
+            this.showToast('Errore durante l\'aggiornamento dello stato.');
+          } finally {
+            btnDrop.disabled = false;
+          }
+        };
+      } else {
+        btnDrop.style.display = 'none';
+      }
+    }
+
+    // =========================================================================
+    // Community: Recommendation ("Da vedere assolutamente") & Comments
+    // =========================================================================
+    const btnRec = document.getElementById('modal-btn-recommend');
+    const commentUserAvatar = document.getElementById('comment-current-user-avatar');
+    const commentInput = document.getElementById('comment-input-text');
+    const commentCharCounter = document.getElementById('comment-char-counter');
+    const btnSubmitComment = document.getElementById('btn-submit-comment');
+    const modalCommentsList = document.getElementById('modal-comments-list');
+    const modalCommentsCount = document.getElementById('modal-comments-count');
+
+    // 1. Set current user avatar preview in comment input
+    const activeUser = SupabaseService.getActiveUser();
+    if (commentUserAvatar) {
+      if (activeUser) {
+        this.setAvatarElement(commentUserAvatar, activeUser);
+      } else {
+        commentUserAvatar.textContent = '🍿';
+      }
+    }
+
+    // 2. Reset comment input state & bind character counter
+    if (commentInput) {
+      commentInput.value = '';
+      commentInput.maxLength = 300;
+      if (commentCharCounter) {
+        commentCharCounter.textContent = '0/300';
+        commentCharCounter.style.color = 'var(--text-dim)';
+      }
+      commentInput.oninput = () => {
+        const len = commentInput.value.length;
+        if (commentCharCounter) {
+          commentCharCounter.textContent = `${len}/300`;
+          commentCharCounter.style.color = len >= 290 ? '#ef4444' : 'var(--text-dim)';
+        }
+      };
+      commentInput.onkeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) {
+          e.preventDefault();
+          if (btnSubmitComment) btnSubmitComment.click();
+        }
+      };
+    }
+
+    // 3. Comments loader helper for this media
+    const loadModalComments = async () => {
+      if (!modalCommentsList) return;
+      modalCommentsList.innerHTML = '<div class="comments-loading">Caricamento commenti community...</div>';
+
+      try {
+        const comments = await SupabaseService.getCommentsForMedia(mediaId);
+        if (modalCommentsCount) {
+          modalCommentsCount.textContent = String(comments.length);
+        }
+
+        if (comments.length === 0) {
+          modalCommentsList.innerHTML = '<div class="comments-empty">Nessun commento finora. Lascia il primo commento per i tuoi amici! 🍿</div>';
+          return;
+        }
+
+        const activeUser = SupabaseService.getActiveUser();
+
+        modalCommentsList.innerHTML = comments.map(c => {
+          const isRec = c.comment_type === 'recommendation';
+          const isOwn = activeUser && String(activeUser.id) === String(c.user_id);
+          const timeAgo = this.formatTimeAgo(new Date(c.created_at).getTime());
+          const avatarHtml = c.avatar_url
+            ? `<img src="${c.avatar_url}" class="profile-avatar-img" alt="${this.escapeHtml(c.username)}" onerror="this.outerHTML='${this.escapeHtml(c.avatar_emoji || '🍿')}'" />`
+            : this.escapeHtml(c.avatar_emoji || '🍿');
+
+          return `
+            <div class="comment-card ${isRec ? 'is-recommendation' : ''}">
+              <div class="comment-card-avatar">${avatarHtml}</div>
+              <div class="comment-card-body">
+                <div class="comment-card-header">
+                  <div class="comment-author-name">
+                    <span>${this.escapeHtml(c.username || 'Amico')}</span>
+                    ${isRec ? '<span class="badge-rec-star">★ Consigliato</span>' : ''}
+                  </div>
+                  <div class="comment-header-right">
+                    <div class="comment-time">${timeAgo}</div>
+                    ${isOwn ? `
+                      <button class="btn-delete-comment navigable focus-compact" data-comment-id="${c.id}" data-is-rec="${isRec}" title="Elimina commento" aria-label="Elimina commento">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="3 6 5 6 21 6"></polyline>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                      </button>
+                    ` : ''}
+                  </div>
+                </div>
+                <div class="comment-card-text">${this.escapeHtml(c.comment_text)}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        // Wire up delete handlers for user's own comments
+        modalCommentsList.querySelectorAll('.btn-delete-comment').forEach(delBtn => {
+          delBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const commentId = delBtn.getAttribute('data-comment-id');
+            const isRecComment = delBtn.getAttribute('data-is-rec') === 'true';
+            if (!commentId) return;
+
+            const confirmMsg = isRecComment
+              ? 'Vuoi rimuovere questo consiglio da "Da vedere assolutamente"?'
+              : 'Sei sicuro di voler cancellare questo commento?';
+
+            if (!window.confirm(confirmMsg)) return;
+
+            delBtn.disabled = true;
+            try {
+              await SupabaseService.deleteComment(commentId);
+              this.showToast('Commento eliminato con successo.');
+              await loadModalComments();
+              this.renderCommunityRow();
+
+              // If recommendation was deleted, update recommend button state
+              if (btnRec && isRecComment) {
+                const stillRec = await SupabaseService.hasUserRecommended(mediaId);
+                if (!stillRec) {
+                  btnRec.classList.remove('recommended');
+                  const recLabel = btnRec.querySelector('.recommend-label');
+                  if (recLabel) recLabel.textContent = 'Da vedere assolutamente';
+                }
+              }
+            } catch (err) {
+              console.error('[Roxy] Error deleting comment:', err);
+              this.showToast('Errore durante l\'eliminazione del commento.');
+            } finally {
+              delBtn.disabled = false;
+            }
+          });
+        });
+      } catch (err) {
+        console.warn('[Roxy] Error loading modal comments:', err);
+        modalCommentsList.innerHTML = '<div class="comments-empty">Impossibile caricare i commenti in questo momento.</div>';
+      }
+    };
+
+    loadModalComments();
+
+    // 4. Recommendation Button ("Da vedere assolutamente")
+    if (btnRec) {
+      const recLabel = btnRec.querySelector('.recommend-label');
+      btnRec.classList.remove('recommended');
+      if (recLabel) recLabel.textContent = 'Da vedere assolutamente';
+
+      SupabaseService.hasUserRecommended(mediaId).then(hasRec => {
+        if (hasRec) {
+          btnRec.classList.add('recommended');
+          if (recLabel) recLabel.textContent = 'Consigliato da te';
+        }
+      }).catch(() => {});
+
+      btnRec.onclick = async () => {
+        const user = SupabaseService.getActiveUser();
+        if (!user) {
+          this.showToast('Accedi o crea un profilo per consigliare i contenuti!');
+          return;
+        }
+
+        btnRec.disabled = true;
+        try {
+          const res = await SupabaseService.toggleRecommendation(data);
+          if (res && res.recommended) {
+            btnRec.classList.add('recommended');
+            if (recLabel) recLabel.textContent = 'Consigliato da te';
+            this.showToast('Aggiunto a "Da vedere assolutamente" per la Community!');
+          } else {
+            btnRec.classList.remove('recommended');
+            if (recLabel) recLabel.textContent = 'Da vedere assolutamente';
+            this.showToast('Rimosso da "Da vedere assolutamente".');
+          }
+          await loadModalComments();
+          this.renderCommunityRow();
+        } catch (err) {
+          console.error('[Roxy] Error toggling recommendation:', err);
+          this.showToast('Errore durante l\'aggiornamento del consiglio.');
+        } finally {
+          btnRec.disabled = false;
+        }
+      };
+    }
+
+    // 5. Community Privacy Toggle ("Nascondi alla community")
+    const btnCommVis = document.getElementById('modal-btn-community-visibility');
+    if (btnCommVis) {
+      const visLabel = btnCommVis.querySelector('.community-visibility-label');
+      const isHidden = StorageService.isCommunityHidden(mediaId);
+
+      const updateVisibilityUI = (hidden) => {
+        if (hidden) {
+          btnCommVis.classList.add('is-hidden-community');
+          if (visLabel) visLabel.textContent = 'Nascosto alla community';
+          btnCommVis.setAttribute('title', 'Nascosto alla community (clicca per mostrare)');
+        } else {
+          btnCommVis.classList.remove('is-hidden-community');
+          if (visLabel) visLabel.textContent = 'Nascondi alla community';
+          btnCommVis.setAttribute('title', 'Nascondi alla community');
+        }
+      };
+
+      updateVisibilityUI(isHidden);
+
+      // Verify remote cloud state if user profile is logged in
+      if (SupabaseService.getActiveUser()) {
+        SupabaseService.isMediaCommunityHidden(mediaId).then(cloudHidden => {
+          if (typeof cloudHidden === 'boolean' && cloudHidden !== isHidden) {
+            StorageService.setCommunityHidden(mediaId, cloudHidden);
+            updateVisibilityUI(cloudHidden);
+          }
+        }).catch(() => {});
+      }
+
+      btnCommVis.onclick = () => {
+        const newHidden = StorageService.toggleCommunityHidden(mediaId);
+        updateVisibilityUI(newHidden);
+        if (newHidden) {
+          this.showToast('Contenuto nascosto alla sezione Community degli altri!');
+        } else {
+          this.showToast('Contenuto ora visibile alla sezione Community degli altri.');
+        }
+        this.renderCommunityRow();
+      };
+    }
+
+    // 6. Submit Comment Button
+    if (btnSubmitComment && commentInput) {
+      btnSubmitComment.onclick = async () => {
+        const user = SupabaseService.getActiveUser();
+        if (!user) {
+          this.showToast('Accedi o crea un profilo per commentare!');
+          return;
+        }
+
+        const text = commentInput.value.trim();
+        if (!text) {
+          this.showToast('Scrivi un commento prima di inviare.');
+          return;
+        }
+
+        btnSubmitComment.disabled = true;
+        try {
+          await SupabaseService.addComment(data, text);
+          commentInput.value = '';
+          if (commentCharCounter) {
+            commentCharCounter.textContent = '0/300';
+            commentCharCounter.style.color = 'var(--text-dim)';
+          }
+          this.showToast('Commento pubblicato nella Community! 💬');
+          await loadModalComments();
+          this.renderCommunityRow();
+        } catch (err) {
+          console.error('[Roxy] Error posting comment:', err);
+          this.showToast('Errore durante l\'invio del commento.');
+        } finally {
+          btnSubmitComment.disabled = false;
+        }
+      };
     }
 
     // Show modal & set focus trap
@@ -1719,6 +2403,7 @@ class RoxyApp {
       this.updateHeaderProfileBadge(null);
       this.showToast('Profilo eliminato con successo.');
       this.renderContinueWatchingRow();
+      this.renderCommunityRow();
       if (this.currentSection === 'watchlist') {
         this.renderWatchlist();
       }
@@ -1738,6 +2423,7 @@ class RoxyApp {
     this.showToast(`Benvenuto/a, ${user.username}! ${user.avatar_emoji || '🍿'}`);
     await StorageService.syncFromCloud();
     this.renderContinueWatchingRow();
+    this.renderCommunityRow();
     if (this.currentSection === 'watchlist') {
       this.renderWatchlist();
     }
