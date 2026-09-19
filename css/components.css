@@ -853,6 +853,14 @@
   color: #ffffff;
 }
 
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
 .modal-body-content {
   padding: 30px 40px;
   overflow-y: auto;
@@ -2712,21 +2720,51 @@
     height: 38px;
     font-size: 1.1rem;
     background: rgba(0, 0, 0, 0.75);
+    z-index: 15;
   }
 
   .modal-header-hero {
-    height: 240px;
-    min-height: 240px;
-    padding: 16px;
+    height: auto;
+    min-height: 290px;
+    padding: 20px 16px 18px 16px;
+    display: flex;
+    align-items: flex-end;
   }
 
   .modal-title {
-    font-size: 1.45rem;
+    font-size: 1.5rem;
+    line-height: 1.2;
+    margin-bottom: 2px;
   }
 
   .modal-hero-info {
     max-width: 100%;
+    width: 100%;
+    gap: 12px;
+  }
+
+  .modal-actions {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 10px;
+    margin-top: 6px;
+    width: 100%;
+  }
+
+  .modal-actions .btn-primary-play,
+  .modal-actions .btn-secondary-glass,
+  .modal-actions .btn-unavailable {
+    padding: 10px 18px;
+    font-size: 0.92rem;
+    border-radius: var(--radius-sm);
+    flex: 1 1 auto;
+    min-width: 140px;
+    justify-content: center;
+    text-align: center;
+    white-space: nowrap;
+    box-sizing: border-box;
   }
 
   .modal-body-content {
@@ -2955,6 +2993,13 @@
 @media (max-width: 380px) {
   .hero-title {
     font-size: 1.45rem;
+  }
+
+  .modal-actions .btn-primary-play,
+  .modal-actions .btn-secondary-glass,
+  .modal-actions .btn-unavailable {
+    width: 100%;
+    min-width: 100%;
   }
 
   .media-card {
