@@ -378,6 +378,14 @@ const SupabaseService = {
         body: JSON.stringify(payload),
         keepalive: true
       });
+
+      // For TV Series and Anime: when user watches episode (S, E), hide all other episodes of the same show
+      if (isSeries && (season > 0 || episode > 0)) {
+        this.restRequest(`watch_progress?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}&or=(season.neq.${season},episode.neq.${episode})`, {
+          method: 'PATCH',
+          body: JSON.stringify({ is_hidden: true })
+        }).catch(() => {});
+      }
     } catch (e) {
       console.warn('[SupabaseService] Cloud progress sync notice:', e.message);
     }
@@ -574,7 +582,8 @@ const SupabaseService = {
     if (!user || !user.id) return [];
 
     try {
-      const rows = await this.restRequest(`watch_progress?user_id=eq.${user.id}&is_hidden=eq.false&progress=lt.95&order=updated_at.desc&limit=35`);
+      // Order by updated_at desc: most recently watched episode of any show comes first
+      const rows = await this.restRequest(`watch_progress?user_id=eq.${user.id}&is_hidden=eq.false&order=updated_at.desc&limit=40`);
       if (!Array.isArray(rows)) return [];
 
       const seen = new Set();
@@ -591,23 +600,39 @@ const SupabaseService = {
         if (r.community_hidden === true && typeof StorageService !== 'undefined' && typeof StorageService.setCommunityHidden === 'function') {
           StorageService.setCommunityHidden(r.media_id, true);
         }
+
+        const isSaturn = (r.source === 'animesaturn' || String(r.media_id).startsWith('saturn_'));
+        const isTv = !isSaturn && (r.media_type === 'tv' || (r.media_type !== 'movie' && Number(r.season) > 0));
+        const isSeries = isTv || isSaturn || r.media_type === 'anime';
+        const prog = Number(r.progress || 0);
+
+        // Movies: skip if completed
+        if (!isSeries && (prog >= 95 || r.is_completed)) {
+          continue;
+        }
+
+        // TV / Anime: skip only if entire series is completed
+        if (r.is_completed === true || (isSeries && r.is_last_episode === true && prog >= 95)) {
+          continue;
+        }
+
         if (seen.has(key)) continue;
         seen.add(key);
 
         uniqueList.push({
           id: r.media_id,
           source: r.source,
-          media_type: r.media_type || 'movie',
+          media_type: r.media_type || (isSaturn ? 'anime' : (isTv ? 'tv' : 'movie')),
           title: r.title,
-          name: (r.media_type === 'tv') ? r.title : undefined,
+          name: isTv ? r.title : undefined,
           poster_path: r.poster_path,
           backdrop_path: r.backdrop_path,
-          season: (r.media_type === 'tv' || r.media_type === 'anime') && r.season > 0 ? r.season : undefined,
-          episode: (r.media_type === 'tv' || r.media_type === 'anime') && r.episode > 0 ? r.episode : undefined,
+          season: isSeries && r.season > 0 ? r.season : (isSeries ? 1 : undefined),
+          episode: isSeries && r.episode > 0 ? r.episode : (isSeries ? 1 : undefined),
           episode_name: r.episode_name,
           currentTime: Number(r.playback_time),
           duration: Number(r.duration),
-          progress: Number(r.progress),
+          progress: prog,
           isDub: r.is_dub,
           slug: r.slug,
           timestamp: new Date(r.updated_at).getTime()
@@ -1107,6 +1132,130 @@ const SupabaseService = {
     } catch (e) {
       console.warn('[SupabaseService] Failed to load community feed:', e);
       return [];
+    }
+  },
+
+  // =========================================================================
+  // Feedback & Feature Requests
+  // =========================================================================
+  async getFeedbackEntries() {
+    try {
+      const activeUser = this.getActiveUser();
+      const currentUserId = activeUser ? String(activeUser.id) : null;
+
+      const rows = await this.restRequest('feedback_entries?select=*,feedback_upvotes(*)&order=created_at.asc');
+      if (!Array.isArray(rows)) return [];
+
+      const parsed = rows.map(entry => {
+        const upvotes = Array.isArray(entry.feedback_upvotes) ? entry.feedback_upvotes : [];
+        const hasUpvoted = currentUserId ? upvotes.some(u => String(u.user_id) === currentUserId) : false;
+        return {
+          id: entry.id,
+          userId: entry.user_id,
+          username: entry.username,
+          avatar_emoji: entry.avatar_emoji || '🍿',
+          avatar_url: entry.avatar_url,
+          type: entry.type, // 'bug' or 'feature'
+          title: entry.title,
+          description: entry.description,
+          isCompleted: !!entry.is_completed,
+          createdAt: new Date(entry.created_at).getTime(),
+          upvotesCount: upvotes.length,
+          hasUpvoted: hasUpvoted,
+          upvoters: upvotes.map(u => ({
+            userId: u.user_id,
+            username: u.username,
+            avatar_emoji: u.avatar_emoji || '🍿',
+            avatar_url: u.avatar_url
+          }))
+        };
+      });
+
+      // Order by: 1. upvotes count descending, 2. created_at ascending (oldest first)
+      parsed.sort((a, b) => {
+        if (b.upvotesCount !== a.upvotesCount) {
+          return b.upvotesCount - a.upvotesCount;
+        }
+        return a.createdAt - b.createdAt;
+      });
+
+      return parsed;
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to get feedback entries:', e);
+      return [];
+    }
+  },
+
+  async createFeedbackEntry({ type, title, description }) {
+    const user = this.getActiveUser();
+    if (!user || !user.id) {
+      throw new Error('Devi aver selezionato un profilo utente per inviare feedback.');
+    }
+    if (!description || !description.trim()) {
+      throw new Error('La descrizione non può essere vuota.');
+    }
+
+    const payload = {
+      user_id: user.id,
+      username: user.username || 'Amico',
+      avatar_emoji: user.avatar_emoji || '🍿',
+      avatar_url: user.avatar_url || null,
+      type: type === 'feature' ? 'feature' : 'bug',
+      title: (title && title.trim()) ? title.trim() : (type === 'feature' ? 'Feature Request' : 'Segnalazione Bug'),
+      description: description.trim(),
+      is_completed: false
+    };
+
+    const res = await this.restRequest('feedback_entries', {
+      method: 'POST',
+      headers: { 'Prefer': 'return=representation' },
+      body: JSON.stringify(payload)
+    });
+
+    return Array.isArray(res) && res.length > 0 ? res[0] : res;
+  },
+
+  async deleteFeedbackEntry(feedbackId) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !feedbackId) {
+      throw new Error('Non autorizzato a cancellare questa voce.');
+    }
+
+    await this.restRequest(`feedback_entries?id=eq.${encodeURIComponent(String(feedbackId))}&user_id=eq.${user.id}`, {
+      method: 'DELETE'
+    });
+    return true;
+  },
+
+  async toggleFeedbackUpvote(feedbackId) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !feedbackId) {
+      throw new Error('Devi selezionare un profilo per votare.');
+    }
+
+    // Check if user already upvoted
+    const existing = await this.restRequest(`feedback_upvotes?feedback_id=eq.${encodeURIComponent(String(feedbackId))}&user_id=eq.${user.id}&select=id&limit=1`);
+
+    if (Array.isArray(existing) && existing.length > 0) {
+      // Remove upvote
+      await this.restRequest(`feedback_upvotes?feedback_id=eq.${encodeURIComponent(String(feedbackId))}&user_id=eq.${user.id}`, {
+        method: 'DELETE'
+      });
+      return { upvoted: false };
+    } else {
+      // Add upvote
+      await this.restRequest('feedback_upvotes', {
+        method: 'POST',
+        headers: { 'Prefer': 'resolution=merge-duplicates' },
+        body: JSON.stringify({
+          feedback_id: feedbackId,
+          user_id: user.id,
+          username: user.username || 'Amico',
+          avatar_emoji: user.avatar_emoji || '🍿',
+          avatar_url: user.avatar_url || null
+        })
+      });
+      return { upvoted: true };
     }
   }
 };

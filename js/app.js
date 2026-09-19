@@ -31,6 +31,7 @@ class RoxyApp {
     this.bindModalEvents();
     this.bindProfileEvents();
     this.bindSearchEvents();
+    this.bindFeedbackEvents();
 
     // 1. Sync updated domains from GitHub in background (non-blocking)
     if (window.DomainManager) {
@@ -148,6 +149,8 @@ class RoxyApp {
       this.loadTVCatalog();
     } else if (sectionName === 'watchlist') {
       this.renderWatchlist();
+    } else if (sectionName === 'feedback') {
+      this.loadFeedbackSection();
     } else if (sectionName === 'search') {
       setTimeout(() => {
         const wrapper = document.querySelector('.search-input-wrapper');
@@ -1072,11 +1075,20 @@ class RoxyApp {
 
     // Populate compact social viewers strip before overview
     const modalSocialViewers = document.getElementById('modal-social-viewers');
-    const refreshModalSocialViewers = () => {
+    const refreshModalSocialViewers = async () => {
       if (!modalSocialViewers) return;
       let viewers = (window.SupabaseService && typeof SupabaseService.getMediaSocialActivity === 'function')
         ? [...SupabaseService.getMediaSocialActivity(data.id, true)]
         : [];
+
+      // Check recommendations
+      let recUsers = [];
+      try {
+        if (window.SupabaseService && typeof SupabaseService.getCommentsForMedia === 'function') {
+          const allComments = await SupabaseService.getCommentsForMedia(data.id);
+          recUsers = allComments.filter(c => c.comment_type === 'recommendation');
+        }
+      } catch (e) {}
 
       const activeUser = (window.SupabaseService && typeof SupabaseService.getActiveUser === 'function')
         ? SupabaseService.getActiveUser()
@@ -1089,16 +1101,18 @@ class RoxyApp {
         const myCont = StorageService.getContinueWatching().some(i => String(i.id) === String(data.id));
         const myCompleted = !!(myProgress && (myProgress.progress >= 95 || myProgress.isCompleted));
         const myStarted = !!(myProgress && (myProgress.currentTime > 5 || myProgress.progress > 0)) || myCont;
+        const myRec = recUsers.some(r => String(r.user_id) === activeUserId);
 
         const existingIdx = viewers.findIndex(v => v.userId === activeUserId);
-        if (myDropped || myCompleted || myStarted) {
-          const myStatus = myDropped ? 'dropped' : (myCompleted ? 'completed' : 'watching');
+        if (myDropped || myCompleted || myStarted || myRec) {
+          const myStatus = myRec ? 'recommended' : (myDropped ? 'dropped' : (myCompleted ? 'completed' : 'watching'));
           const myEntry = {
             userId: activeUserId,
             username: activeUser.username || 'Tu',
             avatar_emoji: activeUser.avatar_emoji || '🍿',
             avatar_url: activeUser.avatar_url || null,
             status: myStatus,
+            isRecommended: myRec,
             progress: myProgress ? myProgress.progress : 0
           };
           if (existingIdx >= 0) {
@@ -1111,15 +1125,42 @@ class RoxyApp {
         }
       }
 
+      // Add other friends who recommended this title
+      for (const rec of recUsers) {
+        const rUserId = String(rec.user_id);
+        const existing = viewers.find(v => v.userId === rUserId);
+        if (existing) {
+          existing.isRecommended = true;
+        } else {
+          viewers.push({
+            userId: rUserId,
+            username: rec.username || 'Amico',
+            avatar_emoji: rec.avatar_emoji || '🍿',
+            avatar_url: rec.avatar_url || null,
+            status: 'recommended',
+            isRecommended: true,
+            progress: 0
+          });
+        }
+      }
+
+      const commentsCount = (document.getElementById('modal-comments-count')?.textContent) || '0';
+
       if (viewers && viewers.length > 0) {
         modalSocialViewers.style.display = 'flex';
         modalSocialViewers.innerHTML = `
           <div class="social-viewers-header">
-            <span class="social-viewers-icon">👥</span>
-            <span class="social-viewers-title">Amici & Community (${viewers.length})</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="social-viewers-icon">👥</span>
+              <span class="social-viewers-title">Amici & Community (${viewers.length})</span>
+            </div>
+            <button id="modal-btn-jump-comments" class="btn-jump-comments navigable focus-compact" type="button" title="Scorri rapidamente ai commenti">
+              💬 Commenti <span class="jump-comments-count-pill" id="modal-jump-comments-count">${commentsCount}</span>
+            </button>
           </div>
           <div class="social-viewers-list">
             ${viewers.map(v => {
+              const isRec = v.isRecommended || v.status === 'recommended';
               const isDropped = v.status === 'dropped';
               const isCompleted = v.status === 'completed';
               const avatarHtml = v.avatar_url
@@ -1130,7 +1171,11 @@ class RoxyApp {
               let badgeClass = 'badge-watching';
               let statusLabel = '▶ Sta guardando';
 
-              if (isDropped) {
+              if (isRec) {
+                statusClass = 'status-recommended';
+                badgeClass = 'badge-recommended';
+                statusLabel = '★ Consigliato';
+              } else if (isDropped) {
                 statusClass = 'status-dropped';
                 badgeClass = 'badge-dropped';
                 statusLabel = '👎 Ha droppato';
@@ -1152,6 +1197,17 @@ class RoxyApp {
             }).join('')}
           </div>
         `;
+
+        const jumpBtn = modalSocialViewers.querySelector('#modal-btn-jump-comments');
+        if (jumpBtn) {
+          jumpBtn.onclick = (e) => {
+            e.stopPropagation();
+            const commentsSec = document.querySelector('.modal-comments-section');
+            if (commentsSec) {
+              commentsSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          };
+        }
       } else {
         modalSocialViewers.style.display = 'none';
         modalSocialViewers.innerHTML = '';
@@ -1626,6 +1682,10 @@ class RoxyApp {
         const comments = await SupabaseService.getCommentsForMedia(mediaId);
         if (modalCommentsCount) {
           modalCommentsCount.textContent = String(comments.length);
+        }
+        const jumpCount = document.getElementById('modal-jump-comments-count');
+        if (jumpCount) {
+          jumpCount.textContent = String(comments.length);
         }
 
         if (comments.length === 0) {
@@ -2805,6 +2865,241 @@ class RoxyApp {
         });
       }
     });
+  }
+
+  // =========================================================================
+  // Feedback & Feature Requests Controller
+  // =========================================================================
+  bindFeedbackEvents() {
+    this.currentFeedbackType = 'bug';
+    this.currentFeedbackFilter = 'all';
+
+    const form = document.getElementById('feedback-form');
+    const typeButtons = document.querySelectorAll('.type-toggle-btn');
+    const titleInput = document.getElementById('feedback-input-title');
+    const descInput = document.getElementById('feedback-input-desc');
+    const charCounter = document.getElementById('feedback-char-count');
+    const submitBtn = document.getElementById('btn-submit-feedback');
+    const filterButtons = document.querySelectorAll('.feed-filter-btn');
+
+    typeButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        typeButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.currentFeedbackType = btn.getAttribute('data-type') || 'bug';
+        if (titleInput) {
+          titleInput.placeholder = this.currentFeedbackType === 'bug'
+            ? 'Es. Errore streaming anime / Player bloccato...'
+            : 'Es. Aggiungi filtro per anno / Modalità offline...';
+        }
+      });
+    });
+
+    if (descInput && charCounter) {
+      descInput.addEventListener('input', () => {
+        const len = descInput.value.length;
+        charCounter.textContent = `${len}/600`;
+        charCounter.style.color = len >= 580 ? '#ef4444' : 'var(--text-dim)';
+      });
+    }
+
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const activeUser = SupabaseService.getActiveUser();
+        if (!activeUser) {
+          this.showToast('Seleziona prima il tuo profilo per inviare feedback!');
+          this.showProfileSelectorModal();
+          return;
+        }
+
+        const title = titleInput ? titleInput.value.trim() : '';
+        const desc = descInput ? descInput.value.trim() : '';
+        if (!desc) {
+          this.showToast('Inserisci una descrizione valida.');
+          return;
+        }
+
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+          await SupabaseService.createFeedbackEntry({
+            type: this.currentFeedbackType,
+            title: title,
+            description: desc
+          });
+          this.showToast('Segnalazione inviata con successo! Grazie per il supporto 🍿');
+          if (titleInput) titleInput.value = '';
+          if (descInput) descInput.value = '';
+          if (charCounter) charCounter.textContent = '0/600';
+          this.loadFeedbackSection();
+        } catch (err) {
+          console.error('[Roxy] Error submitting feedback:', err);
+          this.showToast(err.message || 'Errore durante l\'invio del feedback.');
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+
+    filterButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        filterButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.currentFeedbackFilter = btn.getAttribute('data-filter') || 'all';
+        this.loadFeedbackSection();
+      });
+    });
+  }
+
+  async loadFeedbackSection() {
+    const listContainer = document.getElementById('feedback-list-container');
+    const totalCountBadge = document.getElementById('feedback-total-count');
+    if (!listContainer) return;
+
+    listContainer.innerHTML = '<div class="feedback-loading">Caricamento bacheca feedback...</div>';
+
+    try {
+      const entries = await SupabaseService.getFeedbackEntries();
+      if (totalCountBadge) {
+        totalCountBadge.textContent = String(entries.length);
+      }
+
+      let filtered = entries;
+      if (this.currentFeedbackFilter === 'bug') {
+        filtered = entries.filter(e => e.type === 'bug');
+      } else if (this.currentFeedbackFilter === 'feature') {
+        filtered = entries.filter(e => e.type === 'feature');
+      }
+
+      if (filtered.length === 0) {
+        listContainer.innerHTML = '<div class="feedback-empty-state">Nessuna segnalazione presente in questa categoria. Lascia tu la prima! 🍿</div>';
+        return;
+      }
+
+      const activeUser = SupabaseService.getActiveUser();
+      const currentUserId = activeUser ? String(activeUser.id) : null;
+
+      listContainer.innerHTML = filtered.map(item => {
+        const isBug = item.type === 'bug';
+        const isCompleted = item.isCompleted;
+        const isOwn = currentUserId && String(item.userId) === currentUserId;
+        const timeAgo = this.formatTimeAgo(item.createdAt);
+
+        const authorAvatarHtml = item.avatar_url
+          ? `<img src="${item.avatar_url}" alt="${this.escapeHtml(item.username)}" onerror="this.outerHTML='${this.escapeHtml(item.avatar_emoji || '🍿')}'" />`
+          : this.escapeHtml(item.avatar_emoji || '🍿');
+
+        // Upvoters avatars stack
+        const maxAvatars = 5;
+        const displayUpvoters = (item.upvoters || []).slice(0, maxAvatars);
+        const remainingUpvoters = (item.upvoters || []).length - maxAvatars;
+
+        const upvotersHtml = displayUpvoters.map(u => {
+          const uAvatar = u.avatar_url
+            ? `<img src="${u.avatar_url}" alt="${this.escapeHtml(u.username)}" onerror="this.outerHTML='${this.escapeHtml(u.avatar_emoji || '🍿')}'" />`
+            : this.escapeHtml(u.avatar_emoji || '🍿');
+          return `<div class="feedback-upvoter-avatar" title="${this.escapeHtml(u.username)}">${uAvatar}</div>`;
+        }).join('');
+
+        const remainingHtml = remainingUpvoters > 0
+          ? `<div class="feedback-upvoter-avatar feedback-upvoters-more">+${remainingUpvoters}</div>`
+          : '';
+
+        return `
+          <div class="feedback-card ${isCompleted ? 'is-completed-card' : ''}" data-id="${item.id}">
+            <div class="feedback-card-top">
+              <div class="feedback-author-meta">
+                <div class="feedback-author-avatar">${authorAvatarHtml}</div>
+                <div>
+                  <div class="feedback-author-name">${this.escapeHtml(item.username)}</div>
+                  <div class="feedback-time-ago">${timeAgo}</div>
+                </div>
+              </div>
+              <div class="feedback-card-tags">
+                <span class="${isBug ? 'tag-type-bug' : 'tag-type-feature'}">${isBug ? '🐞 Bug' : '✨ Feature'}</span>
+                ${isCompleted ? `<span class="tag-completed">✓ ${isBug ? 'Risolto' : 'Completato'}</span>` : ''}
+                ${isOwn ? `
+                  <button class="btn-delete-feedback navigable focus-compact" data-id="${item.id}" title="Elimina la tua segnalazione" aria-label="Elimina">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="3 6 5 6 21 6"></polyline>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+
+            <div class="feedback-card-body">
+              <div class="feedback-card-title">${this.escapeHtml(item.title)}</div>
+              <div class="feedback-card-desc">${this.escapeHtml(item.description)}</div>
+            </div>
+
+            <div class="feedback-card-footer">
+              <button class="btn-upvote navigable focus-compact ${item.hasUpvoted ? 'has-upvoted' : ''}" data-id="${item.id}" title="Vota questa richiesta">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="${item.hasUpvoted ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+                <span>${item.hasUpvoted ? 'Votato' : 'Vota'}</span>
+                <strong class="upvote-count">${item.upvotesCount}</strong>
+              </button>
+
+              ${(item.upvoters && item.upvoters.length > 0) ? `
+                <div class="feedback-upvoters-stack" title="${item.upvoters.map(u => u.username).join(', ')}">
+                  ${upvotersHtml}
+                  ${remainingHtml}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Bind Upvote click handlers
+      listContainer.querySelectorAll('.btn-upvote').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const activeUser = SupabaseService.getActiveUser();
+          if (!activeUser) {
+            this.showToast('Seleziona prima il tuo profilo per votare!');
+            this.showProfileSelectorModal();
+            return;
+          }
+          const id = btn.getAttribute('data-id');
+          btn.disabled = true;
+          try {
+            await SupabaseService.toggleFeedbackUpvote(id);
+            this.loadFeedbackSection();
+          } catch (err) {
+            this.showToast(err.message || 'Errore durante il voto.');
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      });
+
+      // Bind Delete click handlers
+      listContainer.querySelectorAll('.btn-delete-feedback').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const id = btn.getAttribute('data-id');
+          if (!window.confirm('Sei sicuro di voler eliminare questa segnalazione?')) return;
+          btn.disabled = true;
+          try {
+            await SupabaseService.deleteFeedbackEntry(id);
+            this.showToast('Segnalazione eliminata.');
+            this.loadFeedbackSection();
+          } catch (err) {
+            this.showToast(err.message || 'Errore durante l\'eliminazione.');
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      });
+
+    } catch (err) {
+      console.error('[Roxy] Error loading feedback section:', err);
+      listContainer.innerHTML = '<div class="feedback-empty-state">Errore durante il caricamento dei feedback.</div>';
+    }
   }
 
   // =========================================================================

@@ -25,6 +25,7 @@
           <button class="nav-item navigable focus-compact" data-section="movies" tabindex="0">Film</button>
           <button class="nav-item navigable focus-compact" data-section="tv" tabindex="0">Serie TV</button>
           <button class="nav-item navigable focus-compact" data-section="watchlist" tabindex="0">La Mia Lista</button>
+          <button class="nav-item navigable focus-compact" data-section="feedback" tabindex="0">Feedback</button>
         </nav>
       </div>
       <div class="header-right">
@@ -80,6 +81,12 @@
           <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
         </svg>
         <span>Mia Lista</span>
+      </button>
+      <button class="mobile-nav-item" data-section="feedback">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span>Feedback</span>
       </button>
       <button class="mobile-nav-item" data-section="search">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -195,6 +202,116 @@
             <div class="hint-icon">🔍</div>
             <p>Inizia a digitare il titolo per cercare tra migliaia di film e serie TV.</p>
           </div>
+        </div>
+      </section>
+
+      <!-- Feedback & Changelog View -->
+      <section id="view-feedback" class="view-section">
+        <div class="feedback-container">
+          
+          <!-- Guidelines & Rules Callout Banner -->
+          <div class="feedback-guidelines-card">
+            <div class="guidelines-icon">💡</div>
+            <div class="guidelines-content">
+              <h2 class="guidelines-title">Linee Guida & Regolamento della Community</h2>
+              <p class="guidelines-text">
+                Ricorda agli utenti di essere sempre cordiali nel richiedere feature e segnalare bug: 
+                <strong>da questo progetto nessuno ci guadagna</strong> ed è realizzato per passione e condivisione. 
+                Chi fa l'antipatico o si comporta in modo irrispettoso verrà bannato a discrezione dell'admin. Grazie per la collaborazione e buon divertimento! 🍿
+              </p>
+            </div>
+          </div>
+
+          <!-- Changelog & Communications Section -->
+          <div class="feedback-changelog-card">
+            <div class="changelog-header">
+              <h3 class="changelog-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                </svg>
+                <span>Changelog & Novità</span>
+              </h3>
+              <span class="changelog-badge">v1.2.0</span>
+            </div>
+            <div class="changelog-list">
+              <div class="changelog-item">
+                <div class="changelog-tag tag-new">Novità</div>
+                <div class="changelog-desc"><strong>Nuova Scheda Feedback:</strong> invia bug report, richiedi feature e vota le segnalazioni degli altri utenti.</div>
+              </div>
+              <div class="changelog-item">
+                <div class="changelog-tag tag-new">Novità</div>
+                <div class="changelog-desc"><strong>Pulsanti "Segna come finito" e "Segna come Da guardare":</strong> gestisci direttamente lo stato di visione nella scheda info.</div>
+              </div>
+              <div class="changelog-item">
+                <div class="changelog-tag tag-new">Novità</div>
+                <div class="changelog-desc"><strong>Frecce di scorrimento orizzontale:</strong> sfoglia le file di contenuti comodamente con il cursore del mouse.</div>
+              </div>
+              <div class="changelog-item">
+                <div class="changelog-tag tag-fix">Fix</div>
+                <div class="changelog-desc"><strong>Salvataggio e ripresa episodi:</strong> risolto il problema della ripartenza da episodio 1 dopo il ricaricamento della pagina.</div>
+              </div>
+              <div class="changelog-item">
+                <div class="changelog-tag tag-fix">Fix</div>
+                <div class="changelog-desc"><strong>Player Popup Episodi:</strong> risolto il ciclo del pulsante "Prossimo Episodio" durante la riproduzione.</div>
+              </div>
+              <div class="changelog-item">
+                <div class="changelog-tag tag-fix">Fix</div>
+                <div class="changelog-desc"><strong>Stato "Ha visto" serie e anime:</strong> completamento assegnato solo dopo la visione dell'ultimo episodio.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feedback Submission Form -->
+          <div class="feedback-form-card">
+            <h3 class="form-card-title">Invia una Segnalazione o Richiesta</h3>
+            <form id="feedback-form" class="feedback-form">
+              <div class="feedback-type-toggle">
+                <button type="button" class="type-toggle-btn active" data-type="bug">
+                  🐞 Segnala un Bug
+                </button>
+                <button type="button" class="type-toggle-btn" data-type="feature">
+                  ✨ Feature Request
+                </button>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="feedback-input-title">Titolo sintetico</label>
+                <input type="text" id="feedback-input-title" class="form-input navigable focus-compact" placeholder="Es. Errore streaming anime / Aggiungi filtro per genere..." maxlength="100" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="feedback-input-desc">Descrizione dettagliata</label>
+                <textarea id="feedback-input-desc" class="form-textarea navigable focus-compact" rows="3" placeholder="Descrivi il problema riscontrato o la funzione che vorresti vedere..." maxlength="600" required></textarea>
+              </div>
+
+              <div class="feedback-form-actions">
+                <span id="feedback-char-count" class="feedback-char-count">0/600</span>
+                <button type="submit" id="btn-submit-feedback" class="btn-primary-play navigable focus-compact">
+                  Invia Segnalazione
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Feedback Feed Section -->
+          <div class="feedback-feed-section">
+            <div class="feedback-feed-header">
+              <h3 class="feed-section-title">
+                <span>Bacheca Segnalazioni Community</span>
+                <span id="feedback-total-count" class="feed-count-badge">0</span>
+              </h3>
+              <div class="feedback-filter-tabs">
+                <button class="feed-filter-btn active" data-filter="all">Tutti</button>
+                <button class="feed-filter-btn" data-filter="bug">Bug</button>
+                <button class="feed-filter-btn" data-filter="feature">Feature</button>
+              </div>
+            </div>
+
+            <div id="feedback-list-container" class="feedback-list-container">
+              <div class="feedback-loading">Caricamento feedback...</div>
+            </div>
+          </div>
+
         </div>
       </section>
 

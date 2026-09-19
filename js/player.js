@@ -401,9 +401,24 @@ const PlayerController = {
     this.prevEpisodeInfo = null;
     this.nextEpisodeInfo = null;
     this.isNextPromptDismissed = false;
+    this.currentSessionTime = 0;
+    this.estimatedDuration = 0;
     this.hideNextEpisodePrompt();
     this.updateTopBarEpisodeButtons();
     window.navigatorInstance.setPlayerActive(true);
+
+    // Completely unload previous video element and iframe to prevent stale timeupdate events
+    if (this.videoEl) {
+      try {
+        this.videoEl.pause();
+        this.videoEl.removeAttribute('src');
+        this.videoEl.load();
+      } catch (e) {}
+    }
+    if (this.iframeEl) {
+      this.iframeEl.removeAttribute('srcdoc');
+      this.iframeEl.src = 'about:blank';
+    }
 
     try {
       if (window.history && window.history.pushState) {
@@ -1344,11 +1359,12 @@ const PlayerController = {
   onEnded() {
     this.isPlaying = false;
     this.updatePlayBtnIcon();
-    this.hideNextEpisodePrompt();
 
     if (this.nextEpisodeInfo) {
-      console.log('[Roxy Player] Stream ended, auto-advancing to next episode:', this.nextEpisodeInfo);
-      this.playNextEpisode();
+      console.log('[Roxy Player] Stream ended, presenting next episode prompt');
+      this.isNextPromptDismissed = false;
+      this.showNextEpisodePrompt();
+      this.showOSD();
       return;
     }
 
@@ -1644,10 +1660,14 @@ const PlayerController = {
   checkNextEpisodePrompt(currentTime, duration) {
     if (!this.nextEpisodeInfo) return;
     if (!duration || duration <= 180 || !currentTime) return;
+    if (currentTime < 60) {
+      this.hideNextEpisodePrompt();
+      return;
+    }
 
     const remaining = duration - currentTime;
-    // If dismissed early by user with 'X', suppress until the final 15 seconds / credits
-    if (this.isNextPromptDismissed && remaining > 15) return;
+    // If dismissed early by user with 'X', suppress until the final 20 seconds / credits
+    if (this.isNextPromptDismissed && remaining > 20) return;
     if (remaining <= 120 && remaining > 0) {
       this.showNextEpisodePrompt();
     }
