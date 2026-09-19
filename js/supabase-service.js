@@ -169,7 +169,7 @@ const SupabaseService = {
   // =========================================================================
   async getProfiles() {
     try {
-      const profiles = await this.restRequest('profiles?select=id,username,avatar_emoji,avatar_url,created_at,last_active_at&order=last_active_at.desc');
+      const profiles = await this.restRequest('profiles?select=id,username,avatar_emoji,avatar_url,bio,created_at,last_active_at&order=last_active_at.desc');
       return Array.isArray(profiles) ? profiles : [];
     } catch (e) {
       console.warn('[SupabaseService] Failed to load profiles from cloud:', e);
@@ -188,34 +188,37 @@ const SupabaseService = {
       throw new Error('Il PIN deve essere composto esattamente da 4 cifre numeriche.');
     }
 
-    // Check 30 users limit
     const existing = await this.getProfiles();
     if (existing.length >= this.maxUsersLimit) {
-      throw new Error(`Limite massimo di ${this.maxUsersLimit} amici registrati raggiunto.`);
+      throw new Error(`Limite massimo di profili raggiunto (${this.maxUsersLimit}).`);
     }
 
-    if (existing.some(p => p.username.toLowerCase() === cleanUser.toLowerCase())) {
-      throw new Error(`Il nome "${cleanUser}" è già utilizzato da un altro profilo.`);
+    const nameExists = existing.some(p => p.username.toLowerCase() === cleanUser.toLowerCase());
+    if (nameExists) {
+      throw new Error('Un profilo con questo nome esiste già.');
     }
 
     const pinHash = await this.hashPin(cleanPin);
-    const newProfiles = await this.restRequest('profiles', {
+
+    const payload = {
+      username: cleanUser,
+      pin_hash: pinHash,
+      avatar_emoji: avatarEmoji || '🍿',
+      avatar_url: avatarUrl || null,
+      bio: '',
+      last_active_at: new Date().toISOString()
+    };
+
+    const inserted = await this.restRequest('profiles', {
       method: 'POST',
       headers: { 'Prefer': 'return=representation' },
-      body: JSON.stringify({
-        username: cleanUser,
-        pin_hash: pinHash,
-        avatar_emoji: avatarEmoji || '🍿',
-        avatar_url: avatarUrl || null
-      })
+      body: JSON.stringify(payload)
     });
 
-    const user = newProfiles && newProfiles[0] ? newProfiles[0] : null;
-    if (user) {
-      this.setActiveUser(user);
-      this.logMetric('register_profile', null, { username: cleanUser });
+    if (Array.isArray(inserted) && inserted.length > 0) {
+      return inserted[0];
     }
-    return user;
+    throw new Error('Errore durante la creazione del profilo su Supabase.');
   },
 
   async login(profileId, enteredPin) {
@@ -225,7 +228,7 @@ const SupabaseService = {
     }
 
     const pinHash = await this.hashPin(cleanPin);
-    const results = await this.restRequest(`profiles?id=eq.${profileId}&select=id,username,pin_hash,avatar_emoji,avatar_url`);
+    const results = await this.restRequest(`profiles?id=eq.${profileId}&select=id,username,pin_hash,avatar_emoji,avatar_url,bio`);
 
     if (!results || results.length === 0) {
       throw new Error('Profilo non trovato.');
@@ -252,6 +255,7 @@ const SupabaseService = {
     if (updates.username) payload.username = String(updates.username).trim();
     if (updates.avatar_emoji !== undefined) payload.avatar_emoji = updates.avatar_emoji;
     if (updates.avatar_url !== undefined) payload.avatar_url = updates.avatar_url;
+    if (updates.bio !== undefined) payload.bio = String(updates.bio).trim();
     if (updates.pin) {
       if (!/^\d{4}$/.test(String(updates.pin).trim())) {
         throw new Error('Il PIN deve essere di 4 cifre.');
@@ -271,7 +275,8 @@ const SupabaseService = {
         ...this.activeUser,
         username: user.username,
         avatar_emoji: user.avatar_emoji,
-        avatar_url: user.avatar_url
+        avatar_url: user.avatar_url,
+        bio: user.bio
       });
     }
     return user;
@@ -635,10 +640,12 @@ const SupabaseService = {
           progress: prog,
           isDub: r.is_dub,
           slug: r.slug,
-          timestamp: new Date(r.updated_at).getTime()
+          timestamp: new Date(r.updated_at).getTime(),
+          updatedAt: new Date(r.updated_at).getTime()
         });
       }
 
+      uniqueList.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
       return uniqueList;
     } catch (e) {
       console.warn('[SupabaseService] Failed to load cloud continue watching:', e);
@@ -1257,6 +1264,96 @@ const SupabaseService = {
         })
       });
       return { upvoted: true };
+    }
+  },
+
+  // =========================================================================
+  // User Profile & Community Pages Data
+  // =========================================================================
+  async getUserProfileData(userId) {
+    try {
+      const activeUser = this.getActiveUser();
+      const isOwner = activeUser && String(activeUser.id) === String(userId);
+
+      // Fetch profile, watched history, recommendations and comments
+      const [profiles, watchRows, commentsRows] = await Promise.all([
+        this.restRequest(`profiles?id=eq.${userId}&select=id,username,avatar_emoji,avatar_url,bio,created_at,last_active_at&limit=1`),
+        isOwner 
+          ? this.restRequest(`watch_progress?user_id=eq.${userId}&order=updated_at.desc&limit=150`)
+          : this.restRequest(`watch_progress?user_id=eq.${userId}&community_hidden=eq.false&order=updated_at.desc&limit=150`),
+        this.restRequest(`comments?user_id=eq.${userId}&order=created_at.desc&limit=100`)
+      ]);
+
+      const profile = Array.isArray(profiles) && profiles.length > 0 ? profiles[0] : null;
+      if (!profile) return null;
+
+      // Extract watched (completed) items
+      const watched = [];
+      const seenMedia = new Set();
+      if (Array.isArray(watchRows)) {
+        for (const r of watchRows) {
+          if (r.is_dropped) continue;
+          const isSaturn = (r.source === 'animesaturn' || String(r.media_id).startsWith('saturn_'));
+          const isTv = !isSaturn && (r.media_type === 'tv' || (r.media_type !== 'movie' && Number(r.season) > 0));
+          const isSeries = isTv || isSaturn || r.media_type === 'anime';
+          const prog = Number(r.progress || 0);
+
+          const isCompleted = r.is_completed === true || (!isSeries && prog >= 95) || (isSeries && r.is_last_episode === true && prog >= 95);
+          if (!isCompleted) continue;
+
+          const key = String(r.media_id);
+          if (seenMedia.has(key)) continue;
+          seenMedia.add(key);
+
+          watched.push({
+            id: r.media_id,
+            title: r.title,
+            poster_path: r.poster_path,
+            backdrop_path: r.backdrop_path,
+            media_type: isSaturn ? 'anime' : (isTv ? 'tv' : 'movie'),
+            source: r.source || (isSaturn ? 'animesaturn' : 'tmdb'),
+            slug: r.slug,
+            community_hidden: !!r.community_hidden,
+            updated_at: r.updated_at
+          });
+        }
+      }
+
+      const recommendations = [];
+      const comments = [];
+      if (Array.isArray(commentsRows)) {
+        for (const c of commentsRows) {
+          const item = {
+            id: c.id,
+            media_id: c.media_id,
+            title: c.title,
+            poster_path: c.poster_path,
+            backdrop_path: c.backdrop_path,
+            media_type: c.media_type,
+            source: c.source,
+            slug: c.slug,
+            comment_text: c.comment_text,
+            comment_type: c.comment_type,
+            created_at: c.created_at
+          };
+          if (c.comment_type === 'recommendation') {
+            recommendations.push(item);
+          } else {
+            comments.push(item);
+          }
+        }
+      }
+
+      return {
+        profile,
+        isOwner,
+        watched,
+        recommendations,
+        comments
+      };
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to load user profile data:', e);
+      return null;
     }
   }
 };

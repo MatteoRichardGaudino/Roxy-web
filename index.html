@@ -29,6 +29,7 @@
           <button class="nav-item navigable focus-compact" data-section="movies" tabindex="0">Film</button>
           <button class="nav-item navigable focus-compact" data-section="tv" tabindex="0">Serie TV</button>
           <button class="nav-item navigable focus-compact" data-section="watchlist" tabindex="0">La Mia Lista</button>
+          <button class="nav-item navigable focus-compact" data-section="users" tabindex="0">Utenti</button>
           <button class="nav-item navigable focus-compact" data-section="feedback" tabindex="0">Feedback</button>
         </nav>
       </div>
@@ -85,6 +86,15 @@
           <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
         </svg>
         <span>Mia Lista</span>
+      </button>
+      <button class="mobile-nav-item" data-section="users">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        <span>Utenti</span>
       </button>
       <button class="mobile-nav-item" data-section="feedback">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -313,6 +323,196 @@
 
             <div id="feedback-list-container" class="feedback-list-container">
               <div class="feedback-loading">Caricamento feedback...</div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           Community Users Catalog View
+           ==================================================================== -->
+      <section id="view-users" class="view-section">
+        <div class="users-page-container">
+          <div class="section-page-header users-page-header">
+            <h1 class="page-title">Community Utenti</h1>
+            <p class="page-subtitle">Esplora i profili della community, scopri i loro titoli visti, i consigli e i commenti.</p>
+          </div>
+          <div id="users-grid" class="users-grid">
+            <div class="feedback-loading">Caricamento utenti community...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           Single User Profile Page View
+           ==================================================================== -->
+      <section id="view-user-profile" class="view-section">
+        <div class="user-profile-page-container">
+          
+          <!-- Back button to return to previous view -->
+          <div class="profile-top-nav">
+            <button id="btn-back-to-users" class="btn-profile-back navigable focus-compact" tabindex="0">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+              <span>Torna indietro</span>
+            </button>
+          </div>
+
+          <!-- Profile Hero Card -->
+          <div class="profile-hero-card">
+            <div class="profile-hero-main">
+              <div id="profile-page-avatar" class="profile-page-avatar">🍿</div>
+              <div class="profile-hero-details">
+                <div class="profile-hero-title-row">
+                  <h1 id="profile-page-username" class="profile-page-username">Utente</h1>
+                  <span id="profile-page-badge-you" class="badge-profile-you" style="display: none;">Tu</span>
+                </div>
+                <div id="profile-page-bio" class="profile-page-bio-text">Nessuna biografia inserita.</div>
+                <div class="profile-stats-row">
+                  <div class="profile-stat-item">
+                    <span class="stat-number" id="profile-stat-watched">0</span>
+                    <span class="stat-label">Visti</span>
+                  </div>
+                  <div class="profile-stat-item">
+                    <span class="stat-number" id="profile-stat-recommended">0</span>
+                    <span class="stat-label">Consigliati</span>
+                  </div>
+                  <div class="profile-stat-item">
+                    <span class="stat-number" id="profile-stat-comments">0</span>
+                    <span class="stat-label">Commenti</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Profile Action Buttons (only visible for active user) -->
+            <div id="profile-owner-actions" class="profile-owner-actions" style="display: none;">
+              <button id="btn-profile-toggle-edit" class="btn-primary-play navigable focus-compact" tabindex="0">
+                ✏️ Modifica Info & Account
+              </button>
+            </div>
+          </div>
+
+          <!-- Active User Inline Edit Panel (Hidden by default, toggled on click) -->
+          <div id="profile-edit-panel" class="profile-edit-panel" style="display: none;">
+            <div class="profile-edit-header">
+              <h3 class="profile-edit-title">Modifica Profilo & Account</h3>
+              <button type="button" id="btn-profile-close-edit" class="modal-close-btn navigable focus-compact" title="Chiudi">✕</button>
+            </div>
+            <form id="profile-edit-form" class="profile-edit-form">
+              <div class="form-group">
+                <label class="form-label" for="profile-edit-name">Nome Profilo</label>
+                <input type="text" id="profile-edit-name" class="form-input navigable focus-compact" maxlength="20" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="profile-edit-bio">Biografia / Breve descrizione di te</label>
+                <textarea id="profile-edit-bio" class="form-textarea navigable focus-compact" rows="2" maxlength="250" placeholder="Scrivi due righe su di te, cosa ti piace guardare, i tuoi generi preferiti..."></textarea>
+                <span id="profile-bio-char-count" class="feedback-char-count" style="text-align: right; display: block;">0/250</span>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Avatar Profilo</label>
+                <div class="avatar-type-selector">
+                  <button type="button" id="profile-edit-tab-emoji" class="avatar-type-tab navigable focus-compact active" data-type="emoji">
+                    <span>😀</span> Emoji
+                  </button>
+                  <button type="button" id="profile-edit-tab-photo" class="avatar-type-tab navigable focus-compact" data-type="photo">
+                    <span>📷</span> Foto
+                  </button>
+                </div>
+
+                <!-- Emoji Picker -->
+                <div id="profile-edit-content-emoji" class="avatar-tab-content active">
+                  <div id="profile-edit-emoji-picker" class="emoji-picker-grid">
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🍿">🍿</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🦊">🦊</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🚀">🚀</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🪐">🪐</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🎬">🎬</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="👑">👑</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🍕">🍕</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🎮">🎮</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="👾">👾</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🐱">🐱</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🎧">🎧</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🔥">🔥</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🏆">🏆</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="💎">💎</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="⚡">⚡</button>
+                  </div>
+                </div>
+
+                <!-- Photo Upload -->
+                <div id="profile-edit-content-photo" class="avatar-tab-content" style="display: none;">
+                  <div class="photo-upload-container">
+                    <div class="photo-preview-wrap">
+                      <div id="profile-edit-photo-preview" class="photo-preview-circle">
+                        <span class="photo-placeholder-icon">📷</span>
+                      </div>
+                      <input type="file" id="profile-edit-photo-input" accept="image/*" style="display: none;" />
+                    </div>
+                    <div class="photo-upload-actions">
+                      <button type="button" id="btn-profile-choose-photo" class="btn-secondary-glass navigable focus-compact">📁 Scegli Foto</button>
+                      <button type="button" id="btn-profile-remove-photo" class="btn-danger-glass navigable focus-compact" style="display: none;">✕ Rimuovi</button>
+                      <span class="photo-upload-hint">Foto quadrata compressa automaticamente (WebP)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="profile-edit-pin">Nuovo PIN (lascia vuoto per non cambiarlo)</label>
+                <input type="password" id="profile-edit-pin" class="form-input navigable focus-compact" placeholder="••••" maxlength="4" pattern="[0-9]*" inputmode="numeric" />
+              </div>
+
+              <div id="profile-edit-error" class="pin-error-msg" style="display: none;"></div>
+
+              <div class="settings-action-row" style="margin-top: 14px;">
+                <button type="button" id="btn-profile-switch-user" class="btn-secondary-glass navigable focus-compact">
+                  🔄 Cambia Profilo
+                </button>
+                <button type="button" id="btn-profile-delete-user" class="btn-danger-glass navigable focus-compact">
+                  🗑 Elimina Profilo
+                </button>
+                <button type="submit" id="btn-profile-save-changes" class="btn-primary-play navigable focus-compact">
+                  Salva Modifiche
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Profile Nav Content Tabs: Titoli Visti, Consigliati, Commenti -->
+          <div class="profile-tabs-bar">
+            <button class="profile-tab-btn active" data-tab="watched">
+              🎬 Titoli Visti (<span id="tab-count-watched">0</span>)
+            </button>
+            <button class="profile-tab-btn" data-tab="recommended">
+              ★ Consigliati (<span id="tab-count-recommended">0</span>)
+            </button>
+            <button class="profile-tab-btn" data-tab="comments">
+              💬 Commenti (<span id="tab-count-comments">0</span>)
+            </button>
+          </div>
+
+          <!-- Profile Tab Content Areas -->
+          <div class="profile-tab-panels">
+            <!-- 1. Watched Media Grid -->
+            <div id="profile-tab-watched" class="profile-tab-panel active">
+              <div id="profile-watched-grid" class="profile-media-grid"></div>
+            </div>
+
+            <!-- 2. Recommendations List -->
+            <div id="profile-tab-recommended" class="profile-tab-panel" style="display: none;">
+              <div id="profile-recommended-list" class="profile-items-list"></div>
+            </div>
+
+            <!-- 3. Comments List -->
+            <div id="profile-tab-comments" class="profile-tab-panel" style="display: none;">
+              <div id="profile-comments-list" class="profile-items-list"></div>
             </div>
           </div>
 

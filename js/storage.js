@@ -48,6 +48,11 @@ const StorageService = {
           cleanList.push(item);
         }
       }
+      cleanList.sort((a, b) => {
+        const timeA = Number(a.updatedAt || a.timestamp || 0);
+        const timeB = Number(b.updatedAt || b.timestamp || 0);
+        return timeB - timeA;
+      });
       return cleanList;
     } catch (e) {
       console.error('Storage read error:', e);
@@ -127,7 +132,8 @@ const StorageService = {
         duration: finalDuration,
         progress: progressPercent,
         isLastEpisode: !!(options.isLastEpisode || item.isLastEpisode),
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
+        timestamp: Date.now()
       };
 
       // Always persist exact playback time in positions dictionary (both overall show & episode-specific)
@@ -451,14 +457,51 @@ const StorageService = {
         SupabaseService.getCloudWatchlist()
       ]);
 
-      if (Array.isArray(cloudContinue) && cloudContinue.length > 0) {
-        localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(cloudContinue));
+      if (Array.isArray(cloudContinue)) {
+        let existingLocal = [];
+        try {
+          const raw = localStorage.getItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING));
+          if (raw) existingLocal = JSON.parse(raw);
+          if (!Array.isArray(existingLocal)) existingLocal = [];
+        } catch (e) {
+          existingLocal = [];
+        }
+
+        const mergedMap = new Map();
+        for (const item of cloudContinue) {
+          if (!item || !item.id) continue;
+          mergedMap.set(String(item.id), item);
+        }
+
+        for (const localItem of existingLocal) {
+          if (!localItem || !localItem.id) continue;
+          const mId = String(localItem.id);
+          const cloudItem = mergedMap.get(mId);
+          if (!cloudItem) {
+            mergedMap.set(mId, localItem);
+          } else {
+            const localTime = Number(localItem.updatedAt || localItem.timestamp || 0);
+            const cloudTime = Number(cloudItem.updatedAt || cloudItem.timestamp || 0);
+            if (localTime > cloudTime) {
+              mergedMap.set(mId, { ...cloudItem, ...localItem });
+            }
+          }
+        }
+
+        const mergedList = Array.from(mergedMap.values());
+        mergedList.sort((a, b) => {
+          const timeA = Number(a.updatedAt || a.timestamp || 0);
+          const timeB = Number(b.updatedAt || b.timestamp || 0);
+          return timeB - timeA;
+        });
+
+        localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(mergedList.slice(0, 30)));
         
         // Also populate positions cache
         try {
           const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
           const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
-          for (const item of cloudContinue) {
+          for (const item of mergedList) {
             const mId = String(item.id);
             positions[mId] = item;
             if (item.season && item.episode) {

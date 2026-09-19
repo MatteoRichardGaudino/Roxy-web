@@ -32,6 +32,7 @@ class RoxyApp {
     this.bindProfileEvents();
     this.bindSearchEvents();
     this.bindFeedbackEvents();
+    this.bindUserProfileEvents();
 
     // 1. Sync updated domains from GitHub in background (non-blocking)
     if (window.DomainManager) {
@@ -47,6 +48,7 @@ class RoxyApp {
       this.updateHeaderProfileBadge(activeUser);
       StorageService.syncFromCloud().then(() => {
         this.renderContinueWatchingRow();
+        this.renderHomeWatchlistRow();
       }).catch(() => {});
     } else {
       setTimeout(() => this.showProfileSelectorModal(), 400);
@@ -149,6 +151,8 @@ class RoxyApp {
       this.loadTVCatalog();
     } else if (sectionName === 'watchlist') {
       this.renderWatchlist();
+    } else if (sectionName === 'users') {
+      this.loadUsersSection();
     } else if (sectionName === 'feedback') {
       this.loadFeedbackSection();
     } else if (sectionName === 'search') {
@@ -188,6 +192,9 @@ class RoxyApp {
 
       // 1b. Render Community feed row
       this.renderCommunityRow();
+
+      // 1c. Render Home Watchlist row
+      this.renderHomeWatchlistRow();
 
       // Helper to render each row into its designated slot as soon as its request completes
       const renderProgressiveRow = (slotId, title, itemsPromise, options = {}) => {
@@ -1446,6 +1453,8 @@ class RoxyApp {
         const added = StorageService.toggleWatchlist(data);
         btnWatchlist.innerHTML = added ? '✓ Nella Lista' : '+ La Mia Lista';
         this.showToast(added ? `"${data.title || data.name}" aggiunto a La mia lista` : 'Rimosso da La mia lista');
+        this.renderWatchlist();
+        this.renderHomeWatchlistRow();
       };
     }
 
@@ -1922,8 +1931,9 @@ class RoxyApp {
     const profileBtn = document.getElementById('nav-profile-btn');
     if (profileBtn) {
       profileBtn.addEventListener('click', () => {
-        if (SupabaseService.getActiveUser()) {
-          this.showProfileSettingsModal();
+        const user = SupabaseService.getActiveUser();
+        if (user) {
+          this.openUserProfile(user.id);
         } else {
           this.showProfileSelectorModal();
         }
@@ -3119,6 +3129,636 @@ class RoxyApp {
       toast.style.transition = 'all 0.3s ease';
       setTimeout(() => toast.remove(), 300);
     }, 3000);
+  }
+
+  // =========================================================================
+  // Home Watchlist Row
+  // =========================================================================
+  renderHomeWatchlistRow() {
+    const rowsWrapper = document.getElementById('home-rows-container');
+    if (!rowsWrapper) return;
+
+    const list = StorageService.getWatchlist();
+    let container = document.getElementById('home-watchlist-row');
+
+    if (!list || list.length === 0) {
+      if (container) container.remove();
+      return;
+    }
+
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'home-watchlist-row';
+      container.className = 'content-row';
+    }
+
+    // Position right after community-row or continue-watching-row
+    const commRow = document.getElementById('community-row');
+    const contRow = document.getElementById('continue-watching-row');
+    const anchor = commRow || contRow;
+
+    if (anchor && anchor.nextSibling !== container) {
+      rowsWrapper.insertBefore(container, anchor.nextSibling);
+    } else if (!anchor && rowsWrapper.firstChild !== container) {
+      rowsWrapper.insertBefore(container, rowsWrapper.firstChild);
+    }
+
+    container.innerHTML = `
+      <div class="row-header">
+        <h2 class="row-title">
+          <span>📑 La Mia Lista</span>
+          <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">${list.length} ${list.length === 1 ? 'titolo' : 'titoli'}</span>
+        </h2>
+      </div>
+      <div class="row-carousel" id="carousel-home-watchlist">
+        ${list.map(item => this.getMediaCardHtml(item)).join('')}
+      </div>
+    `;
+
+    this.setupCarouselArrows(container);
+
+    container.querySelectorAll('.media-card').forEach(card => {
+      const rawId = card.getAttribute('data-id');
+      const item = list.find(i => String(i.id) === String(rawId));
+      if (item) {
+        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+        const playBtn = card.querySelector('.card-play-indicator');
+        if (playBtn) {
+          playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!isSaturn && !CatalogService.isItemAvailable(item)) {
+              this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
+              return;
+            }
+            this.lastFocusedElement = card;
+            PlayerController.play(item);
+          });
+        }
+        card.addEventListener('click', () => {
+          this.lastFocusedElement = card;
+          this.openDetailsModal(item);
+        });
+      }
+    });
+  }
+
+  // =========================================================================
+  // Community Users Catalog & Profiles
+  // =========================================================================
+  async loadUsersSection() {
+    const grid = document.getElementById('users-grid');
+    if (!grid) return;
+
+    grid.innerHTML = '<div class="feedback-loading">Caricamento utenti community...</div>';
+
+    try {
+      const activeUser = SupabaseService.getActiveUser();
+      const currentUserId = activeUser ? String(activeUser.id) : null;
+
+      const [profiles, watchRows, commentsRows] = await Promise.all([
+        SupabaseService.getProfiles(),
+        SupabaseService.restRequest('watch_progress?community_hidden=eq.false&select=user_id,media_id,is_completed,progress,is_last_episode,source,media_type,season').catch(() => []),
+        SupabaseService.restRequest('comments?select=user_id,comment_type').catch(() => [])
+      ]);
+
+      if (!Array.isArray(profiles) || profiles.length === 0) {
+        grid.innerHTML = '<div class="empty-state">Nessun utente registrato.</div>';
+        return;
+      }
+
+      const statsMap = new Map();
+      profiles.forEach(p => {
+        statsMap.set(String(p.id), { watched: new Set(), recs: 0, comments: 0 });
+      });
+
+      if (Array.isArray(watchRows)) {
+        for (const r of watchRows) {
+          const uId = String(r.user_id);
+          const userStat = statsMap.get(uId);
+          if (!userStat) continue;
+
+          const isSaturn = (r.source === 'animesaturn' || String(r.media_id).startsWith('saturn_'));
+          const isTv = !isSaturn && (r.media_type === 'tv' || (r.media_type !== 'movie' && Number(r.season) > 0));
+          const isSeries = isTv || isSaturn || r.media_type === 'anime';
+          const prog = Number(r.progress || 0);
+
+          const isCompleted = r.is_completed === true || (!isSeries && prog >= 95) || (isSeries && r.is_last_episode === true && prog >= 95);
+          if (isCompleted) {
+            userStat.watched.add(String(r.media_id));
+          }
+        }
+      }
+
+      if (Array.isArray(commentsRows)) {
+        for (const c of commentsRows) {
+          const uId = String(c.user_id);
+          const userStat = statsMap.get(uId);
+          if (!userStat) continue;
+          if (c.comment_type === 'recommendation') {
+            userStat.recs++;
+          } else {
+            userStat.comments++;
+          }
+        }
+      }
+
+      grid.innerHTML = profiles.map(p => {
+        const uId = String(p.id);
+        const isMe = currentUserId === uId;
+        const stat = statsMap.get(uId) || { watched: new Set(), recs: 0, comments: 0 };
+        const watchedCount = stat.watched.size;
+        const recCount = stat.recs;
+        const commentCount = stat.comments;
+
+        const avatarHtml = p.avatar_url
+          ? `<img src="${p.avatar_url}" class="profile-avatar-img" alt="${this.escapeHtml(p.username)}" onerror="this.outerHTML='${this.escapeHtml(p.avatar_emoji || '🍿')}'" />`
+          : this.escapeHtml(p.avatar_emoji || '🍿');
+
+        const bioText = p.bio ? this.escapeHtml(p.bio) : '<span style="color: var(--text-dim); font-style: italic;">Nessuna biografia inserita</span>';
+
+        return `
+          <div class="user-card navigable focus-compact ${isMe ? 'is-current-user' : ''}" tabindex="0" data-user-id="${uId}">
+            <div class="user-card-top">
+              <div class="user-card-avatar">${avatarHtml}</div>
+              <div class="user-card-identity">
+                <div class="user-card-name-row">
+                  <h3 class="user-card-username">${this.escapeHtml(p.username)}</h3>
+                  ${isMe ? '<span class="badge-user-you">Tu</span>' : ''}
+                </div>
+                <div class="user-card-bio">${bioText}</div>
+              </div>
+            </div>
+            <div class="user-card-stats">
+              <div class="user-stat-badge">
+                <span class="user-stat-val">🎬 ${watchedCount}</span>
+                <span class="user-stat-lbl">visti</span>
+              </div>
+              <div class="user-stat-badge">
+                <span class="user-stat-val">★ ${recCount}</span>
+                <span class="user-stat-lbl">consigli</span>
+              </div>
+              <div class="user-stat-badge">
+                <span class="user-stat-val">💬 ${commentCount}</span>
+                <span class="user-stat-lbl">commenti</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      grid.querySelectorAll('.user-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const uId = card.getAttribute('data-user-id');
+          if (uId) {
+            this.openUserProfile(uId);
+          }
+        });
+      });
+    } catch (e) {
+      console.error('[Roxy] Error loading users section:', e);
+      grid.innerHTML = '<div class="empty-state">Errore nel caricamento dei profili utente.</div>';
+    }
+  }
+
+  async openUserProfile(userId) {
+    if (!userId) return;
+
+    if (this.currentSection && this.currentSection !== 'user-profile') {
+      this.previousSectionBeforeProfile = this.currentSection;
+    }
+
+    this.switchSection('user-profile');
+
+    const usernameEl = document.getElementById('profile-page-username');
+    const avatarEl = document.getElementById('profile-page-avatar');
+    const badgeYouEl = document.getElementById('profile-page-badge-you');
+    const bioEl = document.getElementById('profile-page-bio');
+    const statWatchedEl = document.getElementById('profile-stat-watched');
+    const statRecsEl = document.getElementById('profile-stat-recommended');
+    const statCommentsEl = document.getElementById('profile-stat-comments');
+    const tabWatchedCount = document.getElementById('tab-count-watched');
+    const tabRecsCount = document.getElementById('tab-count-recommended');
+    const tabCommentsCount = document.getElementById('tab-count-comments');
+    const ownerActions = document.getElementById('profile-owner-actions');
+    const editPanel = document.getElementById('profile-edit-panel');
+
+    if (editPanel) editPanel.style.display = 'none';
+    if (usernameEl) usernameEl.textContent = 'Caricamento profilo...';
+
+    const data = await SupabaseService.getUserProfileData(userId);
+    if (!data || !data.profile) {
+      this.showToast('Impossibile caricare il profilo utente.');
+      this.switchSection('users');
+      return;
+    }
+
+    this.viewedProfileData = data;
+    const { profile, isOwner, watched, recommendations, comments } = data;
+
+    if (usernameEl) usernameEl.textContent = profile.username;
+    if (avatarEl) {
+      avatarEl.innerHTML = profile.avatar_url
+        ? `<img src="${profile.avatar_url}" class="profile-avatar-img" alt="${this.escapeHtml(profile.username)}" onerror="this.outerHTML='${this.escapeHtml(profile.avatar_emoji || '🍿')}'" />`
+        : this.escapeHtml(profile.avatar_emoji || '🍿');
+    }
+    if (badgeYouEl) badgeYouEl.style.display = isOwner ? 'inline-block' : 'none';
+    if (ownerActions) ownerActions.style.display = isOwner ? 'block' : 'none';
+
+    if (bioEl) {
+      bioEl.innerHTML = profile.bio
+        ? this.escapeHtml(profile.bio)
+        : `<span style="color: var(--text-dim); font-style: italic;">${isOwner ? 'Nessuna biografia inserita. Clicca su "Modifica Info" per aggiungerne una!' : 'Nessuna biografia inserita.'}</span>`;
+    }
+
+    if (statWatchedEl) statWatchedEl.textContent = watched.length;
+    if (statRecsEl) statRecsEl.textContent = recommendations.length;
+    if (statCommentsEl) statCommentsEl.textContent = comments.length;
+
+    if (tabWatchedCount) tabWatchedCount.textContent = watched.length;
+    if (tabRecsCount) tabRecsCount.textContent = recommendations.length;
+    if (tabCommentsCount) tabCommentsCount.textContent = comments.length;
+
+    // Render Watched Titles Grid
+    const watchedGrid = document.getElementById('profile-watched-grid');
+    if (watchedGrid) {
+      if (watched.length === 0) {
+        watchedGrid.innerHTML = `<div class="empty-state" style="padding: 40px 0;"><div style="font-size: 2.5rem; margin-bottom: 8px;">🎬</div>Nessun titolo completato ${isOwner ? 'nella tua cronologia' : 'da mostrare'}.</div>`;
+      } else {
+        watchedGrid.innerHTML = watched.map(item => {
+          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+          const posterUrl = item.poster_path || item.backdrop_path || '';
+          const imgUrl = posterUrl.startsWith('http') ? posterUrl : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w342') : 'assets/icon.png');
+          const cleanTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
+
+          return `
+            <div class="media-card navigable focus-compact" tabindex="0" data-id="${item.id}" data-type="${item.media_type}" data-source="${item.source || 'tmdb'}" data-slug="${item.slug || ''}">
+              <div class="card-poster-wrap">
+                <img src="${imgUrl}" alt="${this.escapeHtml(cleanTitle)}" class="card-poster" loading="lazy" />
+                <div class="card-play-indicator">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
+                </div>
+                ${item.community_hidden ? '<div class="badge-hidden-private" title="Nascosto alla community">🔒 Nascosto</div>' : ''}
+              </div>
+              <div class="card-meta">
+                <div class="card-title">${isSaturn ? '🪐 ' : ''}${this.escapeHtml(cleanTitle)}</div>
+                <div class="card-sub">${isSaturn ? 'Anime' : (item.media_type === 'tv' ? 'Serie TV' : 'Film')}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        watchedGrid.querySelectorAll('.media-card').forEach(card => {
+          const rawId = card.getAttribute('data-id');
+          const item = watched.find(i => String(i.id) === String(rawId));
+          if (item) {
+            card.addEventListener('click', () => {
+              this.lastFocusedElement = card;
+              this.openDetailsModal(item);
+            });
+          }
+        });
+      }
+    }
+
+    // Render Recommendations List
+    const recsList = document.getElementById('profile-recommended-list');
+    if (recsList) {
+      if (recommendations.length === 0) {
+        recsList.innerHTML = `<div class="empty-state" style="padding: 40px 0;"><div style="font-size: 2.5rem; margin-bottom: 8px;">★</div>Nessun titolo consigliato.</div>`;
+      } else {
+        recsList.innerHTML = recommendations.map(item => {
+          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+          const posterUrl = item.poster_path || item.backdrop_path || '';
+          const imgUrl = posterUrl.startsWith('http') ? posterUrl : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w185') : 'assets/icon.png');
+          const cleanTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
+          const timeAgo = this.formatTimeAgo(new Date(item.created_at).getTime());
+
+          return `
+            <div class="profile-rec-card navigable focus-compact" tabindex="0" data-media-id="${item.media_id}" data-source="${item.source || 'tmdb'}" data-media-type="${item.media_type || 'movie'}" data-slug="${item.slug || ''}">
+              <img src="${imgUrl}" alt="${this.escapeHtml(cleanTitle)}" class="profile-item-thumb" loading="lazy" />
+              <div class="profile-item-content">
+                <div class="profile-item-header">
+                  <span class="profile-item-title">${isSaturn ? '🪐 ' : ''}${this.escapeHtml(cleanTitle)}</span>
+                  <span class="profile-item-time">${timeAgo}</span>
+                </div>
+                <div class="badge-rec-star" style="display: inline-flex; margin-bottom: 6px;">★ Consigliato assolutamente</div>
+                ${item.comment_text ? `<div class="profile-item-text">"${this.escapeHtml(item.comment_text)}"</div>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        recsList.querySelectorAll('.profile-rec-card').forEach(card => {
+          card.addEventListener('click', () => {
+            const mId = card.getAttribute('data-media-id');
+            const source = card.getAttribute('data-source');
+            const mediaType = card.getAttribute('data-media-type');
+            const slug = card.getAttribute('data-slug');
+            this.lastFocusedElement = card;
+            this.openDetailsModal({ id: mId, source, media_type: mediaType, slug });
+          });
+        });
+      }
+    }
+
+    // Render Comments List
+    const commList = document.getElementById('profile-comments-list');
+    if (commList) {
+      if (comments.length === 0) {
+        commList.innerHTML = `<div class="empty-state" style="padding: 40px 0;"><div style="font-size: 2.5rem; margin-bottom: 8px;">💬</div>Nessun commento scritto.</div>`;
+      } else {
+        commList.innerHTML = comments.map(item => {
+          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+          const posterUrl = item.poster_path || item.backdrop_path || '';
+          const imgUrl = posterUrl.startsWith('http') ? posterUrl : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w185') : 'assets/icon.png');
+          const cleanTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
+          const timeAgo = this.formatTimeAgo(new Date(item.created_at).getTime());
+
+          return `
+            <div class="profile-comment-card navigable focus-compact" tabindex="0" data-media-id="${item.media_id}" data-source="${item.source || 'tmdb'}" data-media-type="${item.media_type || 'movie'}" data-slug="${item.slug || ''}">
+              <img src="${imgUrl}" alt="${this.escapeHtml(cleanTitle)}" class="profile-item-thumb" loading="lazy" />
+              <div class="profile-item-content">
+                <div class="profile-item-header">
+                  <span class="profile-item-title">${isSaturn ? '🪐 ' : ''}${this.escapeHtml(cleanTitle)}</span>
+                  <span class="profile-item-time">${timeAgo}</span>
+                </div>
+                <div class="profile-item-text">"${this.escapeHtml(item.comment_text)}"</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        commList.querySelectorAll('.profile-comment-card').forEach(card => {
+          card.addEventListener('click', () => {
+            const mId = card.getAttribute('data-media-id');
+            const source = card.getAttribute('data-source');
+            const mediaType = card.getAttribute('data-media-type');
+            const slug = card.getAttribute('data-slug');
+            this.lastFocusedElement = card;
+            this.openDetailsModal({ id: mId, source, media_type: mediaType, slug });
+          });
+        });
+      }
+    }
+
+    // Populate Edit Form if owner
+    if (isOwner) {
+      const editName = document.getElementById('profile-edit-name');
+      const editBio = document.getElementById('profile-edit-bio');
+      const bioCounter = document.getElementById('profile-bio-char-count');
+      const editPin = document.getElementById('profile-edit-pin');
+
+      if (editName) editName.value = profile.username || '';
+      if (editBio) {
+        editBio.value = profile.bio || '';
+        if (bioCounter) bioCounter.textContent = `${(profile.bio || '').length}/250`;
+      }
+      if (editPin) editPin.value = '';
+
+      this.profileEditAvatarType = profile.avatar_url ? 'photo' : 'emoji';
+      this.profileEditSelectedEmoji = profile.avatar_emoji || '🍿';
+      this.profileEditPhotoData = profile.avatar_url || null;
+
+      const tabEmoji = document.getElementById('profile-edit-tab-emoji');
+      const tabPhoto = document.getElementById('profile-edit-tab-photo');
+      const contentEmoji = document.getElementById('profile-edit-content-emoji');
+      const contentPhoto = document.getElementById('profile-edit-content-photo');
+      const photoPreview = document.getElementById('profile-edit-photo-preview');
+      const btnRemovePhoto = document.getElementById('btn-profile-remove-photo');
+
+      if (this.profileEditAvatarType === 'photo' && profile.avatar_url) {
+        if (tabEmoji) tabEmoji.classList.remove('active');
+        if (tabPhoto) tabPhoto.classList.add('active');
+        if (contentEmoji) contentEmoji.style.display = 'none';
+        if (contentPhoto) contentPhoto.style.display = 'block';
+        if (photoPreview) photoPreview.innerHTML = `<img src="${profile.avatar_url}" class="photo-preview-img" alt="Preview" />`;
+        if (btnRemovePhoto) btnRemovePhoto.style.display = 'inline-block';
+      } else {
+        if (tabEmoji) tabEmoji.classList.add('active');
+        if (tabPhoto) tabPhoto.classList.remove('active');
+        if (contentEmoji) contentEmoji.style.display = 'block';
+        if (contentPhoto) contentPhoto.style.display = 'none';
+        if (btnRemovePhoto) btnRemovePhoto.style.display = 'none';
+      }
+
+      document.querySelectorAll('#profile-edit-emoji-picker .settings-emoji-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-emoji') === this.profileEditSelectedEmoji);
+      });
+    }
+  }
+
+  bindUserProfileEvents() {
+    const btnBack = document.getElementById('btn-back-to-users');
+    if (btnBack) {
+      btnBack.addEventListener('click', () => {
+        const dest = this.previousSectionBeforeProfile || 'users';
+        this.switchSection(dest);
+      });
+    }
+
+    const profileTabs = document.querySelectorAll('.profile-tab-btn');
+    profileTabs.forEach(btn => {
+      btn.addEventListener('click', () => {
+        profileTabs.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.getAttribute('data-tab');
+
+        document.querySelectorAll('.profile-tab-panel').forEach(panel => {
+          panel.style.display = 'none';
+          panel.classList.remove('active');
+        });
+
+        const targetPanel = document.getElementById(`profile-tab-${tab}`);
+        if (targetPanel) {
+          targetPanel.style.display = 'block';
+          targetPanel.classList.add('active');
+        }
+      });
+    });
+
+    const btnToggleEdit = document.getElementById('btn-profile-toggle-edit');
+    const btnCloseEdit = document.getElementById('btn-profile-close-edit');
+    const editPanel = document.getElementById('profile-edit-panel');
+
+    if (btnToggleEdit && editPanel) {
+      btnToggleEdit.addEventListener('click', () => {
+        editPanel.style.display = editPanel.style.display === 'none' ? 'block' : 'none';
+        if (editPanel.style.display === 'block') {
+          editPanel.scrollIntoView({ behavior: 'smooth' });
+          const firstInput = editPanel.querySelector('input');
+          if (firstInput) firstInput.focus();
+        }
+      });
+    }
+
+    if (btnCloseEdit && editPanel) {
+      btnCloseEdit.addEventListener('click', () => {
+        editPanel.style.display = 'none';
+      });
+    }
+
+    const bioTextarea = document.getElementById('profile-edit-bio');
+    const bioCounter = document.getElementById('profile-bio-char-count');
+    if (bioTextarea && bioCounter) {
+      bioTextarea.addEventListener('input', () => {
+        bioCounter.textContent = `${bioTextarea.value.length}/250`;
+      });
+    }
+
+    const tabEmoji = document.getElementById('profile-edit-tab-emoji');
+    const tabPhoto = document.getElementById('profile-edit-tab-photo');
+    const contentEmoji = document.getElementById('profile-edit-content-emoji');
+    const contentPhoto = document.getElementById('profile-edit-content-photo');
+
+    if (tabEmoji && tabPhoto) {
+      tabEmoji.addEventListener('click', () => {
+        tabEmoji.classList.add('active');
+        tabPhoto.classList.remove('active');
+        if (contentEmoji) contentEmoji.style.display = 'block';
+        if (contentPhoto) contentPhoto.style.display = 'none';
+        this.profileEditAvatarType = 'emoji';
+      });
+
+      tabPhoto.addEventListener('click', () => {
+        tabPhoto.classList.add('active');
+        tabEmoji.classList.remove('active');
+        if (contentPhoto) contentPhoto.style.display = 'block';
+        if (contentEmoji) contentEmoji.style.display = 'none';
+        this.profileEditAvatarType = 'photo';
+      });
+    }
+
+    document.querySelectorAll('#profile-edit-emoji-picker .settings-emoji-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#profile-edit-emoji-picker .settings-emoji-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.profileEditSelectedEmoji = btn.getAttribute('data-emoji') || '🍿';
+      });
+    });
+
+    const fileInput = document.getElementById('profile-edit-photo-input');
+    const btnChoosePhoto = document.getElementById('btn-profile-choose-photo');
+    const btnRemovePhoto = document.getElementById('btn-profile-remove-photo');
+    const photoPreview = document.getElementById('profile-edit-photo-preview');
+
+    if (btnChoosePhoto && fileInput) {
+      btnChoosePhoto.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          const compressed = await this.compressAvatarImage(file);
+          this.profileEditPhotoData = compressed;
+          if (photoPreview) {
+            photoPreview.innerHTML = `<img src="${compressed}" class="photo-preview-img" alt="Preview" />`;
+          }
+          if (btnRemovePhoto) btnRemovePhoto.style.display = 'inline-block';
+        } catch (err) {
+          this.showToast('Errore nel caricamento della foto.');
+        }
+      });
+    }
+
+    if (btnRemovePhoto) {
+      btnRemovePhoto.addEventListener('click', () => {
+        this.profileEditPhotoData = null;
+        if (photoPreview) photoPreview.innerHTML = '<span class="photo-placeholder-icon">📷</span>';
+        btnRemovePhoto.style.display = 'none';
+        if (fileInput) fileInput.value = '';
+      });
+    }
+
+    const btnSwitchUser = document.getElementById('btn-profile-switch-user');
+    if (btnSwitchUser) {
+      btnSwitchUser.addEventListener('click', () => {
+        if (editPanel) editPanel.style.display = 'none';
+        this.showProfileSelectorModal();
+      });
+    }
+
+    const btnDeleteUser = document.getElementById('btn-profile-delete-user');
+    if (btnDeleteUser) {
+      btnDeleteUser.addEventListener('click', async () => {
+        const user = SupabaseService.getActiveUser();
+        if (!user) return;
+        if (confirm(`Sei sicuro di voler eliminare definitivamente il profilo "${user.username}"? Tutti i tuoi progressi verranno cancellati.`)) {
+          try {
+            await SupabaseService.deleteProfile(user.id);
+            this.showToast('Profilo eliminato con successo.');
+            if (editPanel) editPanel.style.display = 'none';
+            this.showProfileSelectorModal();
+          } catch (err) {
+            this.showToast('Errore durante l\'eliminazione del profilo.');
+          }
+        }
+      });
+    }
+
+    const form = document.getElementById('profile-edit-form');
+    const errorMsg = document.getElementById('profile-edit-error');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const user = SupabaseService.getActiveUser();
+        if (!user) return;
+
+        const newName = document.getElementById('profile-edit-name')?.value?.trim();
+        const newBio = document.getElementById('profile-edit-bio')?.value?.trim() || '';
+        const newPin = document.getElementById('profile-edit-pin')?.value?.trim();
+
+        if (errorMsg) {
+          errorMsg.style.display = 'none';
+          errorMsg.textContent = '';
+        }
+
+        if (newPin && !/^\d{4}$/.test(newPin)) {
+          if (errorMsg) {
+            errorMsg.textContent = 'Il PIN deve essere esattamente di 4 cifre numeriche.';
+            errorMsg.style.display = 'block';
+          }
+          return;
+        }
+
+        const updates = {
+          username: newName,
+          bio: newBio
+        };
+        if (newPin) updates.pin = newPin;
+
+        if (this.profileEditAvatarType === 'photo' && this.profileEditPhotoData) {
+          if (this.profileEditPhotoData.startsWith('data:')) {
+            try {
+              const uploadedUrl = await SupabaseService.uploadAvatarPhoto(user.id, this.profileEditPhotoData);
+              updates.avatar_url = uploadedUrl;
+            } catch (err) {
+              if (errorMsg) {
+                errorMsg.textContent = 'Caricamento foto fallito, riprova.';
+                errorMsg.style.display = 'block';
+              }
+              return;
+            }
+          } else {
+            updates.avatar_url = this.profileEditPhotoData;
+          }
+        } else {
+          updates.avatar_url = null;
+          updates.avatar_emoji = this.profileEditSelectedEmoji || '🍿';
+        }
+
+        try {
+          const updatedUser = await SupabaseService.updateProfile(user.id, updates);
+          this.showToast('Profilo aggiornato con successo!');
+          if (editPanel) editPanel.style.display = 'none';
+          this.updateHeaderProfileBadge(updatedUser);
+          this.openUserProfile(user.id);
+        } catch (err) {
+          if (errorMsg) {
+            errorMsg.textContent = err.message || 'Errore durante l\'aggiornamento.';
+            errorMsg.style.display = 'block';
+          }
+        }
+      });
+    }
   }
 }
 
