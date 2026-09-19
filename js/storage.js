@@ -33,13 +33,14 @@ const StorageService = {
         if (this.isDropped(item.id)) continue;
         const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
         const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
+        const isSeries = isTv || isSaturn || item.media_type === 'anime';
         const rem = (item.duration && item.currentTime !== undefined) ? (item.duration - item.currentTime) : 999;
         const isNearEnd = (item.progress >= 95) || (item.duration > 300 && rem <= 180);
         
         // Exclude completed movies
-        if (!isTv && isNearEnd) continue;
-        // Exclude completed last episode of series
-        if (isTv && isNearEnd && item.isLastEpisode) continue;
+        if (!isSeries && isNearEnd) continue;
+        // Exclude completed last episode of entire series / anime
+        if (isSeries && isNearEnd && item.isLastEpisode) continue;
 
         const key = String(item.id);
         if (!seen.has(key)) {
@@ -63,20 +64,28 @@ const StorageService = {
       const positionsData = localStorage.getItem(this.getUserKey(this.KEYS.PLAYBACK_POSITIONS));
       if (positionsData) {
         const positions = JSON.parse(positionsData);
-        if (season !== null && episode !== null && positions[`${mediaId}_s${season}_e${episode}`]) {
-          return positions[`${mediaId}_s${season}_e${episode}`];
+        if (episode !== null) {
+          const s = season !== null ? season : 1;
+          if (positions[`${mediaId}_s${s}_e${episode}`]) {
+            return positions[`${mediaId}_s${s}_e${episode}`];
+          }
+          if (positions[`${mediaId}_e${episode}`]) {
+            return positions[`${mediaId}_e${episode}`];
+          }
         }
         if (positions[mediaId]) {
           const p = positions[mediaId];
           if (season === null && episode === null) return p;
-          if (Number(p.season) === Number(season) && Number(p.episode) === Number(episode)) return p;
+          if (episode !== null && Number(p.episode) === Number(episode)) {
+            if (season === null || Number(p.season) === Number(season)) return p;
+          }
         }
       }
 
       // 2. Fallback to Continue Watching array
       const list = this.getContinueWatching();
-      if (season !== null && episode !== null) {
-        const epMatch = list.find(i => String(i.id) === mediaId && Number(i.season) === Number(season) && Number(i.episode) === Number(episode));
+      if (episode !== null) {
+        const epMatch = list.find(i => String(i.id) === mediaId && Number(i.episode) === Number(episode) && (season === null || Number(i.season) === Number(season)));
         if (epMatch) return epMatch;
       }
       return list.find(i => String(i.id) === mediaId) || null;
@@ -91,15 +100,16 @@ const StorageService = {
       const mediaId = String(item.id);
       const isSaturn = (item.source === 'animesaturn' || mediaId.startsWith('saturn_'));
       const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
+      const isSeries = isTv || isSaturn || item.media_type === 'anime';
       
-      const finalDuration = (duration && duration > 0) ? Math.floor(duration) : (isTv ? 2700 : 7200);
+      const finalDuration = (duration && duration > 0) ? Math.floor(duration) : (isSeries ? 2700 : 7200);
       const finalCurrentTime = Math.max(0, Math.floor(currentTime || 0));
       const progressPercent = Math.min(100, Math.round((finalCurrentTime / finalDuration) * 100));
       const remainingSeconds = Math.max(0, finalDuration - finalCurrentTime);
       const isNearEnd = (progressPercent >= 95) || (finalDuration > 300 && remainingSeconds <= 180);
 
-      const season = isTv ? (Number(item.season) || 1) : undefined;
-      const episode = isTv ? (Number(item.episode) || 1) : undefined;
+      const season = isSeries ? (Number(item.season) || 1) : undefined;
+      const episode = isSeries ? (Number(item.episode) || 1) : undefined;
 
       const record = {
         id: item.id,
@@ -125,8 +135,10 @@ const StorageService = {
         const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
         const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
         positions[mediaId] = record;
-        if (isTv && season && episode) {
-          positions[`${mediaId}_s${season}_e${episode}`] = record;
+        if (isSeries && episode) {
+          const s = season || 1;
+          positions[`${mediaId}_s${s}_e${episode}`] = record;
+          positions[`${mediaId}_e${episode}`] = record;
         }
         localStorage.setItem(positionsKey, JSON.stringify(positions));
       } catch (err) {}
@@ -134,7 +146,7 @@ const StorageService = {
       // Update Continue Watching Carousel list (filter out duplicates)
       const list = this.getContinueWatching().filter(i => String(i.id) !== mediaId);
 
-      if (!isTv) {
+      if (!isSeries) {
         // Movies: DO NOT show if finished or near end (<3 min left)
         if (!isNearEnd) {
           list.unshift(record);
@@ -153,8 +165,8 @@ const StorageService = {
           const nextEp = options.nextEpisode;
           const nextRecord = {
             ...record,
-            season: isTv ? (Number(nextEp.season) || 1) : undefined,
-            episode: isTv ? (Number(nextEp.episode) || 1) : undefined,
+            season: isSeries ? (Number(nextEp.season) || 1) : undefined,
+            episode: isSeries ? (Number(nextEp.episode) || 1) : undefined,
             episode_name: nextEp.episode_name || '',
             currentTime: 0,
             progress: 0,
@@ -166,7 +178,7 @@ const StorageService = {
             SupabaseService.syncWatchProgress(nextEp, 0, finalDuration).catch(() => {});
           }
         } else {
-          // Normal TV progress update (even near end, keeps series in list until next episode advances)
+          // Normal TV / Anime progress update (even near end, keeps series in list until next episode advances)
           list.unshift(record);
         }
       }

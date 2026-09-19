@@ -208,6 +208,23 @@ class SpatialNavigator {
       }
     }
 
+    // Check if PIN modal is active: intercept remote/keyboard numeric input
+    const pinModal = document.getElementById('pin-modal');
+    if (pinModal && pinModal.style.display !== 'none') {
+      let digit = null;
+      if (code >= 48 && code <= 57) digit = String(code - 48);
+      else if (code >= 96 && code <= 105) digit = String(code - 96);
+      else if (e.key >= '0' && e.key <= '9') digit = e.key;
+
+      if (digit !== null) {
+        e.preventDefault();
+        if (window.App && typeof window.App.handlePinDigit === 'function') {
+          window.App.handlePinDigit(digit);
+        }
+        return;
+      }
+    }
+
     const activeEl = document.activeElement;
     const isEditingText = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
 

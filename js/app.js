@@ -1097,22 +1097,32 @@ class RoxyApp {
         episodesContainer.innerHTML = `
           <h3 class="modal-section-title">Episodi Anime (${data.episodes.length})</h3>
           <div class="episodes-grid" id="modal-episodes-grid">
-            ${data.episodes.map(ep => `
+            ${data.episodes.map(ep => {
+              const epProg = StorageService.getItemProgress(data.id, 1, ep.episode_number);
+              const hasProg = epProg && epProg.progress > 0;
+              const isComp = epProg && epProg.progress >= 95;
+              return `
               <div class="episode-card navigable" tabindex="0" data-episode="${ep.episode_number}">
                 <div class="episode-thumb-wrap">
                   <img src="${(ep.still_path && ep.still_path.startsWith('http')) ? ep.still_path : (data.backdrop_path || data.poster_path)}" alt="${ep.name}" loading="lazy" />
+                  ${hasProg ? `
+                    <div class="episode-progress-bar">
+                      <div class="episode-progress-fill" style="width: ${isComp ? 100 : epProg.progress}%;"></div>
+                    </div>
+                  ` : ''}
                 </div>
                 <div class="episode-info">
                   <div class="episode-title-row">
                     <div class="episode-number-title">${ep.episode_number}. ${ep.name || `Episodio ${ep.episode_number}`}</div>
                     <div style="display:flex; align-items:center; gap:8px;">
                       <span class="${data.isDub ? 'badge-dub' : 'badge-sub'}">${data.isDub ? 'DUB' : 'SUB'}</span>
+                      ${isComp ? `<span class="episode-badge-completed">✓ Visto</span>` : ''}
                     </div>
                   </div>
                   <div class="episode-overview">${ep.overview || `Episodio ${ep.episode_number}`}</div>
                 </div>
               </div>
-            `).join('')}
+            `;}).join('')}
           </div>
         `;
 
@@ -1121,6 +1131,8 @@ class RoxyApp {
           epCard.addEventListener('click', () => {
             const epNum = parseInt(epCard.getAttribute('data-episode'));
             const epData = data.episodes.find(e => e.episode_number === epNum);
+            const epSaved = StorageService.getItemProgress(data.id, 1, epNum);
+            const epResumeSec = (epSaved && epSaved.currentTime > 5 && epSaved.progress < 95) ? epSaved.currentTime : null;
             this.closeModal();
             PlayerController.play({
               ...data,
@@ -1128,7 +1140,7 @@ class RoxyApp {
               slug: data.slug || item.slug,
               episode: epNum,
               episode_name: epData ? epData.name : `Episodio ${epNum}`
-            });
+            }, null, epResumeSec);
           });
         });
       } else if (!isSaturn && (data.media_type === 'tv' || (data.media_type !== 'movie' && (data.name && !data.title))) && data.seasons && data.seasons.length > 0) {
@@ -1164,23 +1176,32 @@ class RoxyApp {
 
           grid.innerHTML = episodes.map(ep => {
             const epAvail = CatalogService.isEpisodeAvailable(data.id, seasonNum, ep.episode_number);
+            const epProg = StorageService.getItemProgress(data.id, seasonNum, ep.episode_number);
+            const hasProg = epProg && epProg.progress > 0;
+            const isComp = epProg && epProg.progress >= 95;
             return `
             <div class="episode-card navigable ${epAvail ? '' : 'unavailable'}" tabindex="0" data-season="${seasonNum}" data-episode="${ep.episode_number}" data-avail="${epAvail}">
               <div class="episode-thumb-wrap">
                 <img src="${TMDBService.getBackdropUrl(ep.still_path || data.backdrop_path, 'w500')}" alt="${ep.name}" loading="lazy" />
+                ${hasProg ? `
+                  <div class="episode-progress-bar">
+                    <div class="episode-progress-fill" style="width: ${isComp ? 100 : epProg.progress}%;"></div>
+                  </div>
+                ` : ''}
               </div>
               <div class="episode-info">
                 <div class="episode-title-row">
                   <div class="episode-number-title">${ep.episode_number}. ${ep.name || `Episodio ${ep.episode_number}`}</div>
                   <div style="display:flex; align-items:center; gap:8px;">
                     ${!epAvail ? `<span class="badge-unavailable">Non disp.</span>` : ''}
+                    ${isComp ? `<span class="episode-badge-completed">✓ Visto</span>` : ''}
                     <div class="episode-runtime">${ep.runtime ? `${ep.runtime} min` : ''}</div>
                   </div>
                 </div>
                 <div class="episode-overview">${ep.overview || 'Nessuna descrizione disponibile.'}</div>
               </div>
             </div>
-          `}).join('');
+          `;}).join('');
 
           // Episode click listeners
           grid.querySelectorAll('.episode-card').forEach(epCard => {
@@ -1932,22 +1953,37 @@ class RoxyApp {
       btnPinCancel.addEventListener('click', () => this.closePinModal());
     }
 
-    // Physical / Remote keyboard numbers for PIN
+    // Physical / Remote keyboard numbers for PIN (Capture phase stops webOS TV channel switching)
     window.addEventListener('keydown', (e) => {
       const pinModal = document.getElementById('pin-modal');
       if (pinModal && pinModal.style.display !== 'none') {
-        if (e.key >= '0' && e.key <= '9') {
+        const code = e.keyCode || e.which;
+        let digit = null;
+        if (code >= 48 && code <= 57) digit = String(code - 48);
+        else if (code >= 96 && code <= 105) digit = String(code - 96);
+        else if (e.key >= '0' && e.key <= '9') digit = e.key;
+
+        if (digit !== null) {
           e.preventDefault();
-          this.handlePinDigit(e.key);
-        } else if (e.key === 'Backspace') {
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          this.handlePinDigit(digit);
+          return false;
+        } else if (code === 8 || e.key === 'Backspace') {
           e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
           this.handlePinDelete();
-        } else if (e.key === 'Escape') {
+          return false;
+        } else if (code === 27 || code === 461 || e.key === 'Escape') {
           e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
           this.closePinModal();
+          return false;
         }
       }
-    });
+    }, true);
   }
 
   renderAvatarHtml(user, className = 'profile-avatar-img', fallbackEmoji = '🍿') {
