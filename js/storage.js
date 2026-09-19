@@ -33,13 +33,14 @@ const StorageService = {
         if (this.isDropped(item.id)) continue;
         const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
         const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
+        const isSeries = isTv || isSaturn || item.media_type === 'anime';
         const rem = (item.duration && item.currentTime !== undefined) ? (item.duration - item.currentTime) : 999;
         const isNearEnd = (item.progress >= 95) || (item.duration > 300 && rem <= 180);
         
         // Exclude completed movies
-        if (!isTv && isNearEnd) continue;
-        // Exclude completed last episode of series
-        if (isTv && isNearEnd && item.isLastEpisode) continue;
+        if (!isSeries && isNearEnd) continue;
+        // Exclude completed last episode of entire series / anime
+        if (isSeries && isNearEnd && item.isLastEpisode) continue;
 
         const key = String(item.id);
         if (!seen.has(key)) {
@@ -47,6 +48,11 @@ const StorageService = {
           cleanList.push(item);
         }
       }
+      cleanList.sort((a, b) => {
+        const timeA = Number(a.updatedAt || a.timestamp || 0);
+        const timeB = Number(b.updatedAt || b.timestamp || 0);
+        return timeB - timeA;
+      });
       return cleanList;
     } catch (e) {
       console.error('Storage read error:', e);
@@ -63,20 +69,28 @@ const StorageService = {
       const positionsData = localStorage.getItem(this.getUserKey(this.KEYS.PLAYBACK_POSITIONS));
       if (positionsData) {
         const positions = JSON.parse(positionsData);
-        if (season !== null && episode !== null && positions[`${mediaId}_s${season}_e${episode}`]) {
-          return positions[`${mediaId}_s${season}_e${episode}`];
+        if (episode !== null) {
+          const s = season !== null ? season : 1;
+          if (positions[`${mediaId}_s${s}_e${episode}`]) {
+            return positions[`${mediaId}_s${s}_e${episode}`];
+          }
+          if (positions[`${mediaId}_e${episode}`]) {
+            return positions[`${mediaId}_e${episode}`];
+          }
         }
         if (positions[mediaId]) {
           const p = positions[mediaId];
           if (season === null && episode === null) return p;
-          if (Number(p.season) === Number(season) && Number(p.episode) === Number(episode)) return p;
+          if (episode !== null && Number(p.episode) === Number(episode)) {
+            if (season === null || Number(p.season) === Number(season)) return p;
+          }
         }
       }
 
       // 2. Fallback to Continue Watching array
       const list = this.getContinueWatching();
-      if (season !== null && episode !== null) {
-        const epMatch = list.find(i => String(i.id) === mediaId && Number(i.season) === Number(season) && Number(i.episode) === Number(episode));
+      if (episode !== null) {
+        const epMatch = list.find(i => String(i.id) === mediaId && Number(i.episode) === Number(episode) && (season === null || Number(i.season) === Number(season)));
         if (epMatch) return epMatch;
       }
       return list.find(i => String(i.id) === mediaId) || null;
@@ -91,15 +105,16 @@ const StorageService = {
       const mediaId = String(item.id);
       const isSaturn = (item.source === 'animesaturn' || mediaId.startsWith('saturn_'));
       const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
+      const isSeries = isTv || isSaturn || item.media_type === 'anime';
       
-      const finalDuration = (duration && duration > 0) ? Math.floor(duration) : (isTv ? 2700 : 7200);
+      const finalDuration = (duration && duration > 0) ? Math.floor(duration) : (isSeries ? 2700 : 7200);
       const finalCurrentTime = Math.max(0, Math.floor(currentTime || 0));
       const progressPercent = Math.min(100, Math.round((finalCurrentTime / finalDuration) * 100));
       const remainingSeconds = Math.max(0, finalDuration - finalCurrentTime);
       const isNearEnd = (progressPercent >= 95) || (finalDuration > 300 && remainingSeconds <= 180);
 
-      const season = isTv ? (Number(item.season) || 1) : undefined;
-      const episode = isTv ? (Number(item.episode) || 1) : undefined;
+      const season = isSeries ? (Number(item.season) || 1) : undefined;
+      const episode = isSeries ? (Number(item.episode) || 1) : undefined;
 
       const record = {
         id: item.id,
@@ -117,7 +132,8 @@ const StorageService = {
         duration: finalDuration,
         progress: progressPercent,
         isLastEpisode: !!(options.isLastEpisode || item.isLastEpisode),
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
+        timestamp: Date.now()
       };
 
       // Always persist exact playback time in positions dictionary (both overall show & episode-specific)
@@ -125,8 +141,10 @@ const StorageService = {
         const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
         const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
         positions[mediaId] = record;
-        if (isTv && season && episode) {
-          positions[`${mediaId}_s${season}_e${episode}`] = record;
+        if (isSeries && episode) {
+          const s = season || 1;
+          positions[`${mediaId}_s${s}_e${episode}`] = record;
+          positions[`${mediaId}_e${episode}`] = record;
         }
         localStorage.setItem(positionsKey, JSON.stringify(positions));
       } catch (err) {}
@@ -134,7 +152,7 @@ const StorageService = {
       // Update Continue Watching Carousel list (filter out duplicates)
       const list = this.getContinueWatching().filter(i => String(i.id) !== mediaId);
 
-      if (!isTv) {
+      if (!isSeries) {
         // Movies: DO NOT show if finished or near end (<3 min left)
         if (!isNearEnd) {
           list.unshift(record);
@@ -153,8 +171,8 @@ const StorageService = {
           const nextEp = options.nextEpisode;
           const nextRecord = {
             ...record,
-            season: isTv ? (Number(nextEp.season) || 1) : undefined,
-            episode: isTv ? (Number(nextEp.episode) || 1) : undefined,
+            season: isSeries ? (Number(nextEp.season) || 1) : undefined,
+            episode: isSeries ? (Number(nextEp.episode) || 1) : undefined,
             episode_name: nextEp.episode_name || '',
             currentTime: 0,
             progress: 0,
@@ -166,7 +184,7 @@ const StorageService = {
             SupabaseService.syncWatchProgress(nextEp, 0, finalDuration).catch(() => {});
           }
         } else {
-          // Normal TV progress update (even near end, keeps series in list until next episode advances)
+          // Normal TV / Anime progress update (even near end, keeps series in list until next episode advances)
           list.unshift(record);
         }
       }
@@ -350,6 +368,83 @@ const StorageService = {
     return this.setMediaDropped(id, !current);
   },
 
+  // Set Media Completed ("Segna come finito")
+  setMediaCompleted(id, isCompleted = true, mediaData = {}) {
+    try {
+      if (!id) return;
+      const mediaId = String(id);
+      const isSaturn = (mediaData.source === 'animesaturn' || mediaId.startsWith('saturn_'));
+      const isTv = !isSaturn && (mediaData.media_type === 'tv' || (mediaData.media_type !== 'movie' && (mediaData.number_of_seasons !== undefined || (!!mediaData.name && !mediaData.title))));
+      const isSeries = isTv || isSaturn || mediaData.media_type === 'anime';
+
+      const duration = (mediaData.duration && mediaData.duration > 0) ? mediaData.duration : (isSeries ? 2700 : 7200);
+
+      // 1. Remove from continue watching
+      const contList = this.getContinueWatching().filter(i => String(i.id) !== mediaId);
+      localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(contList));
+
+      // 2. Update positions cache with completed flag
+      try {
+        const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
+        const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
+        positions[mediaId] = {
+          id: mediaId,
+          ...mediaData,
+          progress: 100,
+          currentTime: duration,
+          duration: duration,
+          isCompleted: true,
+          isLastEpisode: true,
+          updatedAt: Date.now()
+        };
+        localStorage.setItem(positionsKey, JSON.stringify(positions));
+      } catch (e) {}
+
+      // 3. Unmark from dropped
+      this.setMediaDropped(mediaId, false);
+
+      // 4. Sync to Supabase Cloud
+      if (window.SupabaseService && typeof SupabaseService.setMediaCompleted === 'function') {
+        SupabaseService.setMediaCompleted(mediaId, isCompleted, mediaData).catch(() => {});
+      }
+    } catch (e) {
+      console.error('Storage setMediaCompleted error:', e);
+    }
+  },
+
+  // Reset Watch Progress ("Segna come Da guardare" / Azzera progressi)
+  resetMediaProgress(id) {
+    try {
+      if (!id) return;
+      const mediaId = String(id);
+
+      // 1. Remove from continue watching
+      const contList = this.getContinueWatching().filter(i => String(i.id) !== mediaId);
+      localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(contList));
+
+      // 2. Clear all positions for this media from cache
+      try {
+        const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
+        const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
+        delete positions[mediaId];
+        Object.keys(positions).forEach(k => {
+          if (k.startsWith(`${mediaId}_`)) delete positions[k];
+        });
+        localStorage.setItem(positionsKey, JSON.stringify(positions));
+      } catch (e) {}
+
+      // 3. Unset dropped
+      this.setMediaDropped(mediaId, false);
+
+      // 4. Reset in Supabase Cloud
+      if (window.SupabaseService && typeof SupabaseService.resetMediaProgress === 'function') {
+        SupabaseService.resetMediaProgress(mediaId).catch(() => {});
+      }
+    } catch (e) {
+      console.error('Storage resetMediaProgress error:', e);
+    }
+  },
+
   // Sync cloud data into local storage on login
   async syncFromCloud() {
     if (!window.SupabaseService) return;
@@ -362,14 +457,51 @@ const StorageService = {
         SupabaseService.getCloudWatchlist()
       ]);
 
-      if (Array.isArray(cloudContinue) && cloudContinue.length > 0) {
-        localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(cloudContinue));
+      if (Array.isArray(cloudContinue)) {
+        let existingLocal = [];
+        try {
+          const raw = localStorage.getItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING));
+          if (raw) existingLocal = JSON.parse(raw);
+          if (!Array.isArray(existingLocal)) existingLocal = [];
+        } catch (e) {
+          existingLocal = [];
+        }
+
+        const mergedMap = new Map();
+        for (const item of cloudContinue) {
+          if (!item || !item.id) continue;
+          mergedMap.set(String(item.id), item);
+        }
+
+        for (const localItem of existingLocal) {
+          if (!localItem || !localItem.id) continue;
+          const mId = String(localItem.id);
+          const cloudItem = mergedMap.get(mId);
+          if (!cloudItem) {
+            mergedMap.set(mId, localItem);
+          } else {
+            const localTime = Number(localItem.updatedAt || localItem.timestamp || 0);
+            const cloudTime = Number(cloudItem.updatedAt || cloudItem.timestamp || 0);
+            if (localTime > cloudTime) {
+              mergedMap.set(mId, { ...cloudItem, ...localItem });
+            }
+          }
+        }
+
+        const mergedList = Array.from(mergedMap.values());
+        mergedList.sort((a, b) => {
+          const timeA = Number(a.updatedAt || a.timestamp || 0);
+          const timeB = Number(b.updatedAt || b.timestamp || 0);
+          return timeB - timeA;
+        });
+
+        localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(mergedList.slice(0, 30)));
         
         // Also populate positions cache
         try {
           const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
           const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
-          for (const item of cloudContinue) {
+          for (const item of mergedList) {
             const mId = String(item.id);
             positions[mId] = item;
             if (item.season && item.episode) {

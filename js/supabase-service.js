@@ -169,7 +169,7 @@ const SupabaseService = {
   // =========================================================================
   async getProfiles() {
     try {
-      const profiles = await this.restRequest('profiles?select=id,username,avatar_emoji,avatar_url,created_at,last_active_at&order=last_active_at.desc');
+      const profiles = await this.restRequest('profiles?select=id,username,avatar_emoji,avatar_url,bio,created_at,last_active_at&order=last_active_at.desc');
       return Array.isArray(profiles) ? profiles : [];
     } catch (e) {
       console.warn('[SupabaseService] Failed to load profiles from cloud:', e);
@@ -188,34 +188,37 @@ const SupabaseService = {
       throw new Error('Il PIN deve essere composto esattamente da 4 cifre numeriche.');
     }
 
-    // Check 30 users limit
     const existing = await this.getProfiles();
     if (existing.length >= this.maxUsersLimit) {
-      throw new Error(`Limite massimo di ${this.maxUsersLimit} amici registrati raggiunto.`);
+      throw new Error(`Limite massimo di profili raggiunto (${this.maxUsersLimit}).`);
     }
 
-    if (existing.some(p => p.username.toLowerCase() === cleanUser.toLowerCase())) {
-      throw new Error(`Il nome "${cleanUser}" è già utilizzato da un altro profilo.`);
+    const nameExists = existing.some(p => p.username.toLowerCase() === cleanUser.toLowerCase());
+    if (nameExists) {
+      throw new Error('Un profilo con questo nome esiste già.');
     }
 
     const pinHash = await this.hashPin(cleanPin);
-    const newProfiles = await this.restRequest('profiles', {
+
+    const payload = {
+      username: cleanUser,
+      pin_hash: pinHash,
+      avatar_emoji: avatarEmoji || '🍿',
+      avatar_url: avatarUrl || null,
+      bio: '',
+      last_active_at: new Date().toISOString()
+    };
+
+    const inserted = await this.restRequest('profiles', {
       method: 'POST',
       headers: { 'Prefer': 'return=representation' },
-      body: JSON.stringify({
-        username: cleanUser,
-        pin_hash: pinHash,
-        avatar_emoji: avatarEmoji || '🍿',
-        avatar_url: avatarUrl || null
-      })
+      body: JSON.stringify(payload)
     });
 
-    const user = newProfiles && newProfiles[0] ? newProfiles[0] : null;
-    if (user) {
-      this.setActiveUser(user);
-      this.logMetric('register_profile', null, { username: cleanUser });
+    if (Array.isArray(inserted) && inserted.length > 0) {
+      return inserted[0];
     }
-    return user;
+    throw new Error('Errore durante la creazione del profilo su Supabase.');
   },
 
   async login(profileId, enteredPin) {
@@ -225,7 +228,7 @@ const SupabaseService = {
     }
 
     const pinHash = await this.hashPin(cleanPin);
-    const results = await this.restRequest(`profiles?id=eq.${profileId}&select=id,username,pin_hash,avatar_emoji,avatar_url`);
+    const results = await this.restRequest(`profiles?id=eq.${profileId}&select=id,username,pin_hash,avatar_emoji,avatar_url,bio`);
 
     if (!results || results.length === 0) {
       throw new Error('Profilo non trovato.');
@@ -252,6 +255,7 @@ const SupabaseService = {
     if (updates.username) payload.username = String(updates.username).trim();
     if (updates.avatar_emoji !== undefined) payload.avatar_emoji = updates.avatar_emoji;
     if (updates.avatar_url !== undefined) payload.avatar_url = updates.avatar_url;
+    if (updates.bio !== undefined) payload.bio = String(updates.bio).trim();
     if (updates.pin) {
       if (!/^\d{4}$/.test(String(updates.pin).trim())) {
         throw new Error('Il PIN deve essere di 4 cifre.');
@@ -271,7 +275,8 @@ const SupabaseService = {
         ...this.activeUser,
         username: user.username,
         avatar_emoji: user.avatar_emoji,
-        avatar_url: user.avatar_url
+        avatar_url: user.avatar_url,
+        bio: user.bio
       });
     }
     return user;
@@ -326,7 +331,7 @@ const SupabaseService = {
   },
 
   // =========================================================================
-  // Cloud Watch Progress Sync (Continue Watching)
+  // Cloud Watch Progress Sync & Social Presence
   // =========================================================================
   async syncWatchProgress(item, currentTime, duration) {
     const user = this.getActiveUser();
@@ -335,14 +340,17 @@ const SupabaseService = {
     const mediaId = String(item.id);
     const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
     const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
+    const isSeries = isTv || isSaturn || item.media_type === 'anime';
     
     // Movies strictly use season 0, episode 0 to avoid duplicate rows
-    const season = isTv ? (Number(item.season) || 1) : 0;
-    const episode = isTv ? (Number(item.episode) || 1) : 0;
+    const season = isSeries ? (Number(item.season) || 1) : 0;
+    const episode = isSeries ? (Number(item.episode) || 1) : 0;
     
-    const validDuration = (duration && duration > 0) ? Math.floor(duration) : (isTv ? 2700 : 7200);
+    const validDuration = (duration && duration > 0) ? Math.floor(duration) : (isSeries ? 2700 : 7200);
     const validCurrentTime = Math.max(0, Math.floor(currentTime || 0));
     const progress = Math.min(100, Math.max(0, (validCurrentTime / validDuration) * 100));
+
+    const isCompleted = (!isSeries && progress >= 95) || (isSeries && !!item.isLastEpisode && progress >= 95) || !!item.isCompleted;
 
     const payload = {
       user_id: user.id,
@@ -359,7 +367,9 @@ const SupabaseService = {
       duration: validDuration,
       progress: Math.round(progress * 10) / 10,
       is_dub: !!item.isDub,
-      is_hidden: false,
+      is_hidden: isCompleted,
+      is_completed: isCompleted,
+      is_last_episode: !!item.isLastEpisode,
       is_dropped: typeof StorageService !== 'undefined' && typeof StorageService.isDropped === 'function' ? StorageService.isDropped(mediaId) : false,
       community_hidden: typeof StorageService !== 'undefined' && typeof StorageService.isCommunityHidden === 'function' ? StorageService.isCommunityHidden(mediaId) : false,
       slug: item.slug || '',
@@ -373,6 +383,14 @@ const SupabaseService = {
         body: JSON.stringify(payload),
         keepalive: true
       });
+
+      // For TV Series and Anime: when user watches episode (S, E), hide all other episodes of the same show
+      if (isSeries && (season > 0 || episode > 0)) {
+        this.restRequest(`watch_progress?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}&or=(season.neq.${season},episode.neq.${episode})`, {
+          method: 'PATCH',
+          body: JSON.stringify({ is_hidden: true })
+        }).catch(() => {});
+      }
     } catch (e) {
       console.warn('[SupabaseService] Cloud progress sync notice:', e.message);
     }
@@ -426,6 +444,76 @@ const SupabaseService = {
       await this.loadGlobalSocialActivity();
     } catch (e) {
       console.warn('[SupabaseService] Failed to set dropped status:', e);
+    }
+  },
+
+  async setMediaCompleted(mediaId, isCompleted = true, mediaData = null) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !mediaId) return;
+
+    try {
+      const res = await this.restRequest(`watch_progress?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}`, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=representation' },
+        body: JSON.stringify({
+          progress: isCompleted ? 100 : 0,
+          is_hidden: !!isCompleted,
+          is_dropped: false,
+          is_completed: !!isCompleted,
+          is_last_episode: !!isCompleted,
+          updated_at: new Date().toISOString()
+        })
+      });
+
+      if ((!res || res.length === 0) && mediaData) {
+        const isSaturn = (mediaData.source === 'animesaturn' || String(mediaId).startsWith('saturn_'));
+        const isTv = !isSaturn && (mediaData.media_type === 'tv' || (mediaData.media_type !== 'movie' && (mediaData.number_of_seasons !== undefined || (!!mediaData.name && !mediaData.title))));
+        const isSeries = isTv || isSaturn || mediaData.media_type === 'anime';
+
+        await this.restRequest('watch_progress?on_conflict=user_id,media_id,season,episode', {
+          method: 'POST',
+          headers: { 'Prefer': 'resolution=merge-duplicates' },
+          body: JSON.stringify({
+            user_id: user.id,
+            media_id: String(mediaId),
+            source: mediaData.source || (isSaturn ? 'animesaturn' : 'tmdb'),
+            media_type: mediaData.media_type || (isSaturn ? 'anime' : (isTv ? 'tv' : 'movie')),
+            title: mediaData.title || mediaData.name || 'Streaming',
+            poster_path: mediaData.poster_path || '',
+            backdrop_path: mediaData.backdrop_path || '',
+            season: isSeries ? (Number(mediaData.season) || 1) : 0,
+            episode: isSeries ? (Number(mediaData.episode) || 1) : 0,
+            playback_time: isSeries ? 2700 : 7200,
+            duration: isSeries ? 2700 : 7200,
+            progress: 100,
+            is_hidden: true,
+            is_completed: true,
+            is_last_episode: true,
+            is_dropped: false,
+            community_hidden: typeof StorageService !== 'undefined' && typeof StorageService.isCommunityHidden === 'function' ? StorageService.isCommunityHidden(mediaId) : false,
+            slug: mediaData.slug || '',
+            updated_at: new Date().toISOString()
+          })
+        });
+      }
+
+      await this.loadGlobalSocialActivity();
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to set completed status:', e);
+    }
+  },
+
+  async resetMediaProgress(mediaId) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !mediaId) return;
+
+    try {
+      await this.restRequest(`watch_progress?user_id=eq.${user.id}&media_id=eq.${encodeURIComponent(String(mediaId))}`, {
+        method: 'DELETE'
+      });
+      await this.loadGlobalSocialActivity();
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to reset media progress:', e);
     }
   },
 
@@ -499,7 +587,8 @@ const SupabaseService = {
     if (!user || !user.id) return [];
 
     try {
-      const rows = await this.restRequest(`watch_progress?user_id=eq.${user.id}&is_hidden=eq.false&progress=lt.95&order=updated_at.desc&limit=35`);
+      // Order by updated_at desc: most recently watched episode of any show comes first
+      const rows = await this.restRequest(`watch_progress?user_id=eq.${user.id}&is_hidden=eq.false&order=updated_at.desc&limit=40`);
       if (!Array.isArray(rows)) return [];
 
       const seen = new Set();
@@ -516,29 +605,47 @@ const SupabaseService = {
         if (r.community_hidden === true && typeof StorageService !== 'undefined' && typeof StorageService.setCommunityHidden === 'function') {
           StorageService.setCommunityHidden(r.media_id, true);
         }
+
+        const isSaturn = (r.source === 'animesaturn' || String(r.media_id).startsWith('saturn_'));
+        const isTv = !isSaturn && (r.media_type === 'tv' || (r.media_type !== 'movie' && Number(r.season) > 0));
+        const isSeries = isTv || isSaturn || r.media_type === 'anime';
+        const prog = Number(r.progress || 0);
+
+        // Movies: skip if completed
+        if (!isSeries && (prog >= 95 || r.is_completed)) {
+          continue;
+        }
+
+        // TV / Anime: skip only if entire series is completed
+        if (r.is_completed === true || (isSeries && r.is_last_episode === true && prog >= 95)) {
+          continue;
+        }
+
         if (seen.has(key)) continue;
         seen.add(key);
 
         uniqueList.push({
           id: r.media_id,
           source: r.source,
-          media_type: r.media_type || 'movie',
+          media_type: r.media_type || (isSaturn ? 'anime' : (isTv ? 'tv' : 'movie')),
           title: r.title,
-          name: (r.media_type === 'tv') ? r.title : undefined,
+          name: isTv ? r.title : undefined,
           poster_path: r.poster_path,
           backdrop_path: r.backdrop_path,
-          season: (r.media_type === 'tv' || r.media_type === 'anime') && r.season > 0 ? r.season : undefined,
-          episode: (r.media_type === 'tv' || r.media_type === 'anime') && r.episode > 0 ? r.episode : undefined,
+          season: isSeries && r.season > 0 ? r.season : (isSeries ? 1 : undefined),
+          episode: isSeries && r.episode > 0 ? r.episode : (isSeries ? 1 : undefined),
           episode_name: r.episode_name,
           currentTime: Number(r.playback_time),
           duration: Number(r.duration),
-          progress: Number(r.progress),
+          progress: prog,
           isDub: r.is_dub,
           slug: r.slug,
-          timestamp: new Date(r.updated_at).getTime()
+          timestamp: new Date(r.updated_at).getTime(),
+          updatedAt: new Date(r.updated_at).getTime()
         });
       }
 
+      uniqueList.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
       return uniqueList;
     } catch (e) {
       console.warn('[SupabaseService] Failed to load cloud continue watching:', e);
@@ -787,8 +894,12 @@ const SupabaseService = {
         const seenUserMedia = new Set();
         for (const r of rows) {
           if (r.community_hidden === true) continue;
+          const isSaturn = (r.source === 'animesaturn' || String(r.media_id).startsWith('saturn_'));
+          const isTv = !isSaturn && (r.media_type === 'tv' || (r.media_type !== 'movie' && Number(r.season) > 0));
+          const isSeries = isTv || isSaturn || r.media_type === 'anime';
           const prog = Number(r.progress || 0);
-          const isCompleted = prog >= 95;
+
+          const isCompleted = r.is_completed === true || (!isSeries && prog >= 95) || (isSeries && r.is_last_episode === true && prog >= 95);
           const isDropped = !!r.is_dropped;
           const isWatching = !isCompleted && !isDropped && !r.is_hidden;
 
@@ -867,8 +978,12 @@ const SupabaseService = {
         const seenSocial = new Set();
         for (const r of watchingRows) {
           if (r.community_hidden === true) continue;
+          const isSaturn = (r.source === 'animesaturn' || String(r.media_id).startsWith('saturn_'));
+          const isTv = !isSaturn && (r.media_type === 'tv' || (r.media_type !== 'movie' && Number(r.season) > 0));
+          const isSeries = isTv || isSaturn || r.media_type === 'anime';
           const prog = Number(r.progress || 0);
-          const isCompleted = prog >= 95;
+
+          const isCompleted = r.is_completed === true || (!isSeries && prog >= 95) || (isSeries && r.is_last_episode === true && prog >= 95);
           const isDropped = !!r.is_dropped;
           const isWatching = !isCompleted && !isDropped && !r.is_hidden;
           if (!isCompleted && !isWatching && !isDropped) continue;
@@ -942,8 +1057,13 @@ const SupabaseService = {
           // Exclude anything hidden from community
           if (w.community_hidden === true) continue;
 
+          const isSaturn = (w.source === 'animesaturn' || String(w.media_id).startsWith('saturn_'));
+          const isTv = !isSaturn && (w.media_type === 'tv' || (w.media_type !== 'movie' && Number(w.season) > 0));
+          const isSeries = isTv || isSaturn || w.media_type === 'anime';
+          const isMovie = !isSeries;
           const prog = Number(w.progress || 0);
-          const isCompleted = prog >= 95;
+
+          const isCompleted = w.is_completed === true || (!isSeries && prog >= 95) || (isSeries && w.is_last_episode === true && prog >= 95);
           const isDropped = !!w.is_dropped;
           const isWatching = !isCompleted && !isDropped && !w.is_hidden;
 
@@ -957,10 +1077,6 @@ const SupabaseService = {
           const key = `${w.user_id}_${w.media_id}`;
           if (seenWatching.has(key)) continue;
           seenWatching.add(key);
-
-          const isSaturn = (w.source === 'animesaturn' || String(w.media_id).startsWith('saturn_'));
-          const isTv = !isSaturn && (w.media_type === 'tv' || (w.media_type !== 'movie' && w.season > 0));
-          const isMovie = !isSaturn && (w.media_type === 'movie' || !isTv);
 
           let watchText = 'Sta guardando questo contenuto';
           let actionText = 'sta guardando';
@@ -987,7 +1103,7 @@ const SupabaseService = {
               watchText = (w.episode > 0) ? `Sta guardando l'episodio ${w.episode}` : 'Sta guardando questo anime';
             } else if (isTv && w.season > 0 && w.episode > 0) {
               watchText = `Sta guardando S${w.season}:E${w.episode}`;
-            } else if (isMovie) {
+            } else {
               watchText = 'Sta guardando questo film';
             }
           }
@@ -1024,6 +1140,220 @@ const SupabaseService = {
     } catch (e) {
       console.warn('[SupabaseService] Failed to load community feed:', e);
       return [];
+    }
+  },
+
+  // =========================================================================
+  // Feedback & Feature Requests
+  // =========================================================================
+  async getFeedbackEntries() {
+    try {
+      const activeUser = this.getActiveUser();
+      const currentUserId = activeUser ? String(activeUser.id) : null;
+
+      const rows = await this.restRequest('feedback_entries?select=*,feedback_upvotes(*)&order=created_at.asc');
+      if (!Array.isArray(rows)) return [];
+
+      const parsed = rows.map(entry => {
+        const upvotes = Array.isArray(entry.feedback_upvotes) ? entry.feedback_upvotes : [];
+        const hasUpvoted = currentUserId ? upvotes.some(u => String(u.user_id) === currentUserId) : false;
+        return {
+          id: entry.id,
+          userId: entry.user_id,
+          username: entry.username,
+          avatar_emoji: entry.avatar_emoji || '🍿',
+          avatar_url: entry.avatar_url,
+          type: entry.type, // 'bug' or 'feature'
+          title: entry.title,
+          description: entry.description,
+          isCompleted: !!entry.is_completed,
+          createdAt: new Date(entry.created_at).getTime(),
+          upvotesCount: upvotes.length,
+          hasUpvoted: hasUpvoted,
+          upvoters: upvotes.map(u => ({
+            userId: u.user_id,
+            username: u.username,
+            avatar_emoji: u.avatar_emoji || '🍿',
+            avatar_url: u.avatar_url
+          }))
+        };
+      });
+
+      // Order by: 1. upvotes count descending, 2. created_at ascending (oldest first)
+      parsed.sort((a, b) => {
+        if (b.upvotesCount !== a.upvotesCount) {
+          return b.upvotesCount - a.upvotesCount;
+        }
+        return a.createdAt - b.createdAt;
+      });
+
+      return parsed;
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to get feedback entries:', e);
+      return [];
+    }
+  },
+
+  async createFeedbackEntry({ type, title, description }) {
+    const user = this.getActiveUser();
+    if (!user || !user.id) {
+      throw new Error('Devi aver selezionato un profilo utente per inviare feedback.');
+    }
+    if (!description || !description.trim()) {
+      throw new Error('La descrizione non può essere vuota.');
+    }
+
+    const payload = {
+      user_id: user.id,
+      username: user.username || 'Amico',
+      avatar_emoji: user.avatar_emoji || '🍿',
+      avatar_url: user.avatar_url || null,
+      type: type === 'feature' ? 'feature' : 'bug',
+      title: (title && title.trim()) ? title.trim() : (type === 'feature' ? 'Feature Request' : 'Segnalazione Bug'),
+      description: description.trim(),
+      is_completed: false
+    };
+
+    const res = await this.restRequest('feedback_entries', {
+      method: 'POST',
+      headers: { 'Prefer': 'return=representation' },
+      body: JSON.stringify(payload)
+    });
+
+    return Array.isArray(res) && res.length > 0 ? res[0] : res;
+  },
+
+  async deleteFeedbackEntry(feedbackId) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !feedbackId) {
+      throw new Error('Non autorizzato a cancellare questa voce.');
+    }
+
+    await this.restRequest(`feedback_entries?id=eq.${encodeURIComponent(String(feedbackId))}&user_id=eq.${user.id}`, {
+      method: 'DELETE'
+    });
+    return true;
+  },
+
+  async toggleFeedbackUpvote(feedbackId) {
+    const user = this.getActiveUser();
+    if (!user || !user.id || !feedbackId) {
+      throw new Error('Devi selezionare un profilo per votare.');
+    }
+
+    // Check if user already upvoted
+    const existing = await this.restRequest(`feedback_upvotes?feedback_id=eq.${encodeURIComponent(String(feedbackId))}&user_id=eq.${user.id}&select=id&limit=1`);
+
+    if (Array.isArray(existing) && existing.length > 0) {
+      // Remove upvote
+      await this.restRequest(`feedback_upvotes?feedback_id=eq.${encodeURIComponent(String(feedbackId))}&user_id=eq.${user.id}`, {
+        method: 'DELETE'
+      });
+      return { upvoted: false };
+    } else {
+      // Add upvote
+      await this.restRequest('feedback_upvotes', {
+        method: 'POST',
+        headers: { 'Prefer': 'resolution=merge-duplicates' },
+        body: JSON.stringify({
+          feedback_id: feedbackId,
+          user_id: user.id,
+          username: user.username || 'Amico',
+          avatar_emoji: user.avatar_emoji || '🍿',
+          avatar_url: user.avatar_url || null
+        })
+      });
+      return { upvoted: true };
+    }
+  },
+
+  // =========================================================================
+  // User Profile & Community Pages Data
+  // =========================================================================
+  async getUserProfileData(userId) {
+    try {
+      const activeUser = this.getActiveUser();
+      const isOwner = activeUser && String(activeUser.id) === String(userId);
+
+      // Fetch profile, watched history, recommendations and comments
+      const [profiles, watchRows, commentsRows] = await Promise.all([
+        this.restRequest(`profiles?id=eq.${userId}&select=id,username,avatar_emoji,avatar_url,bio,created_at,last_active_at&limit=1`),
+        isOwner 
+          ? this.restRequest(`watch_progress?user_id=eq.${userId}&order=updated_at.desc&limit=150`)
+          : this.restRequest(`watch_progress?user_id=eq.${userId}&community_hidden=eq.false&order=updated_at.desc&limit=150`),
+        this.restRequest(`comments?user_id=eq.${userId}&order=created_at.desc&limit=100`)
+      ]);
+
+      const profile = Array.isArray(profiles) && profiles.length > 0 ? profiles[0] : null;
+      if (!profile) return null;
+
+      // Extract watched (completed) items
+      const watched = [];
+      const seenMedia = new Set();
+      if (Array.isArray(watchRows)) {
+        for (const r of watchRows) {
+          if (r.is_dropped) continue;
+          const isSaturn = (r.source === 'animesaturn' || String(r.media_id).startsWith('saturn_'));
+          const isTv = !isSaturn && (r.media_type === 'tv' || (r.media_type !== 'movie' && Number(r.season) > 0));
+          const isSeries = isTv || isSaturn || r.media_type === 'anime';
+          const prog = Number(r.progress || 0);
+
+          const isCompleted = r.is_completed === true || (!isSeries && prog >= 95) || (isSeries && r.is_last_episode === true && prog >= 95);
+          if (!isCompleted) continue;
+
+          const key = String(r.media_id);
+          if (seenMedia.has(key)) continue;
+          seenMedia.add(key);
+
+          watched.push({
+            id: r.media_id,
+            title: r.title,
+            poster_path: r.poster_path,
+            backdrop_path: r.backdrop_path,
+            media_type: isSaturn ? 'anime' : (isTv ? 'tv' : 'movie'),
+            source: r.source || (isSaturn ? 'animesaturn' : 'tmdb'),
+            slug: r.slug,
+            community_hidden: !!r.community_hidden,
+            updated_at: r.updated_at
+          });
+        }
+      }
+
+      const recommendations = [];
+      const comments = [];
+      if (Array.isArray(commentsRows)) {
+        for (const c of commentsRows) {
+          const item = {
+            id: c.id,
+            media_id: c.media_id,
+            title: c.title,
+            poster_path: c.poster_path,
+            backdrop_path: c.backdrop_path,
+            media_type: c.media_type,
+            source: c.source,
+            slug: c.slug,
+            comment_text: c.comment_text,
+            comment_type: c.comment_type,
+            created_at: c.created_at
+          };
+          if (c.comment_type === 'recommendation') {
+            recommendations.push(item);
+          } else {
+            comments.push(item);
+          }
+        }
+      }
+
+      return {
+        profile,
+        isOwner,
+        watched,
+        recommendations,
+        comments
+      };
+    } catch (e) {
+      console.warn('[SupabaseService] Failed to load user profile data:', e);
+      return null;
     }
   }
 };

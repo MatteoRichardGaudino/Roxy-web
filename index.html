@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Roxy - Streaming Player</title>
+  <title>Roxy</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico?v=2">
+  <link rel="icon" type="image/png" sizes="80x80" href="assets/icon.png?v=2">
+  <link rel="icon" type="image/png" sizes="64x64" href="assets/logo.png?v=2">
+  <link rel="shortcut icon" type="image/x-icon" href="favicon.ico?v=2">
+  <link rel="apple-touch-icon" href="assets/icon.png?v=2">
   <link rel="stylesheet" href="css/oled-theme.css">
   <link rel="stylesheet" href="css/components.css">
 </head>
@@ -24,6 +29,8 @@
           <button class="nav-item navigable focus-compact" data-section="movies" tabindex="0">Film</button>
           <button class="nav-item navigable focus-compact" data-section="tv" tabindex="0">Serie TV</button>
           <button class="nav-item navigable focus-compact" data-section="watchlist" tabindex="0">La Mia Lista</button>
+          <button class="nav-item navigable focus-compact" data-section="users" tabindex="0">Utenti</button>
+          <button class="nav-item navigable focus-compact" data-section="feedback" tabindex="0">Feedback</button>
         </nav>
       </div>
       <div class="header-right">
@@ -79,6 +86,21 @@
           <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
         </svg>
         <span>Mia Lista</span>
+      </button>
+      <button class="mobile-nav-item" data-section="users">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        <span>Utenti</span>
+      </button>
+      <button class="mobile-nav-item" data-section="feedback">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span>Feedback</span>
       </button>
       <button class="mobile-nav-item" data-section="search">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -197,6 +219,306 @@
         </div>
       </section>
 
+      <!-- Feedback & Changelog View -->
+      <section id="view-feedback" class="view-section">
+        <div class="feedback-container">
+          
+          <!-- Guidelines & Rules Callout Banner -->
+          <div class="feedback-guidelines-card">
+            <div class="guidelines-icon">💡</div>
+            <div class="guidelines-content">
+              <h2 class="guidelines-title">Linee Guida & Regolamento della Community</h2>
+              <p class="guidelines-text">
+                Ricorda agli utenti di essere sempre cordiali nel richiedere feature e segnalare bug: 
+                <strong>da questo progetto nessuno ci guadagna</strong> ed è realizzato per passione e condivisione. 
+                Chi fa l'antipatico o si comporta in modo irrispettoso verrà bannato a discrezione dell'admin. Grazie per la collaborazione e buon divertimento! 🍿
+              </p>
+            </div>
+          </div>
+
+          <!-- Changelog & Communications Section -->
+          <div class="feedback-changelog-card">
+            <div class="changelog-header">
+              <h3 class="changelog-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                </svg>
+                <span>Changelog & Novità</span>
+              </h3>
+              <span class="changelog-badge">v1.2.0</span>
+            </div>
+            <div class="changelog-list">
+              <div class="changelog-item">
+                <div class="changelog-tag tag-new">Novità</div>
+                <div class="changelog-desc"><strong>Nuova Scheda Feedback:</strong> invia bug report, richiedi feature e vota le segnalazioni degli altri utenti.</div>
+              </div>
+              <div class="changelog-item">
+                <div class="changelog-tag tag-new">Novità</div>
+                <div class="changelog-desc"><strong>Pulsanti "Segna come finito" e "Segna come Da guardare":</strong> gestisci direttamente lo stato di visione nella scheda info.</div>
+              </div>
+              <div class="changelog-item">
+                <div class="changelog-tag tag-new">Novità</div>
+                <div class="changelog-desc"><strong>Frecce di scorrimento orizzontale:</strong> sfoglia le file di contenuti comodamente con il cursore del mouse.</div>
+              </div>
+              <div class="changelog-item">
+                <div class="changelog-tag tag-fix">Fix</div>
+                <div class="changelog-desc"><strong>Salvataggio e ripresa episodi:</strong> risolto il problema della ripartenza da episodio 1 dopo il ricaricamento della pagina.</div>
+              </div>
+              <div class="changelog-item">
+                <div class="changelog-tag tag-fix">Fix</div>
+                <div class="changelog-desc"><strong>Player Popup Episodi:</strong> risolto il ciclo del pulsante "Prossimo Episodio" durante la riproduzione.</div>
+              </div>
+              <div class="changelog-item">
+                <div class="changelog-tag tag-fix">Fix</div>
+                <div class="changelog-desc"><strong>Stato "Ha visto" serie e anime:</strong> completamento assegnato solo dopo la visione dell'ultimo episodio.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feedback Submission Form -->
+          <div class="feedback-form-card">
+            <h3 class="form-card-title">Invia una Segnalazione o Richiesta</h3>
+            <form id="feedback-form" class="feedback-form">
+              <div class="feedback-type-toggle">
+                <button type="button" class="type-toggle-btn active" data-type="bug">
+                  🐞 Segnala un Bug
+                </button>
+                <button type="button" class="type-toggle-btn" data-type="feature">
+                  ✨ Feature Request
+                </button>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="feedback-input-title">Titolo sintetico</label>
+                <input type="text" id="feedback-input-title" class="form-input navigable focus-compact" placeholder="Es. Errore streaming anime / Aggiungi filtro per genere..." maxlength="100" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="feedback-input-desc">Descrizione dettagliata</label>
+                <textarea id="feedback-input-desc" class="form-textarea navigable focus-compact" rows="3" placeholder="Descrivi il problema riscontrato o la funzione che vorresti vedere..." maxlength="600" required></textarea>
+              </div>
+
+              <div class="feedback-form-actions">
+                <span id="feedback-char-count" class="feedback-char-count">0/600</span>
+                <button type="submit" id="btn-submit-feedback" class="btn-primary-play navigable focus-compact">
+                  Invia Segnalazione
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Feedback Feed Section -->
+          <div class="feedback-feed-section">
+            <div class="feedback-feed-header">
+              <h3 class="feed-section-title">
+                <span>Bacheca Segnalazioni Community</span>
+                <span id="feedback-total-count" class="feed-count-badge">0</span>
+              </h3>
+              <div class="feedback-filter-tabs">
+                <button class="feed-filter-btn active" data-filter="all">Tutti</button>
+                <button class="feed-filter-btn" data-filter="bug">Bug</button>
+                <button class="feed-filter-btn" data-filter="feature">Feature</button>
+              </div>
+            </div>
+
+            <div id="feedback-list-container" class="feedback-list-container">
+              <div class="feedback-loading">Caricamento feedback...</div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           Community Users Catalog View
+           ==================================================================== -->
+      <section id="view-users" class="view-section">
+        <div class="users-page-container">
+          <div class="section-page-header users-page-header">
+            <h1 class="page-title">Community Utenti</h1>
+            <p class="page-subtitle">Esplora i profili della community, scopri i loro titoli visti, i consigli e i commenti.</p>
+          </div>
+          <div id="users-grid" class="users-grid">
+            <div class="feedback-loading">Caricamento utenti community...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           Single User Profile Page View
+           ==================================================================== -->
+      <section id="view-user-profile" class="view-section">
+        <div class="user-profile-page-container">
+          
+          <!-- Back button to return to previous view -->
+          <div class="profile-top-nav">
+            <button id="btn-back-to-users" class="btn-profile-back navigable focus-compact" tabindex="0">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+              <span>Torna indietro</span>
+            </button>
+          </div>
+
+          <!-- Profile Hero Card -->
+          <div class="profile-hero-card">
+            <div class="profile-hero-main">
+              <div id="profile-page-avatar" class="profile-page-avatar">🍿</div>
+              <div class="profile-hero-details">
+                <div class="profile-hero-title-row">
+                  <h1 id="profile-page-username" class="profile-page-username">Utente</h1>
+                  <span id="profile-page-badge-you" class="badge-profile-you" style="display: none;">Tu</span>
+                </div>
+                <div id="profile-page-bio" class="profile-page-bio-text">Nessuna biografia inserita.</div>
+                <div class="profile-stats-row">
+                  <div class="profile-stat-item">
+                    <span class="stat-number" id="profile-stat-watched">0</span>
+                    <span class="stat-label">Visti</span>
+                  </div>
+                  <div class="profile-stat-item">
+                    <span class="stat-number" id="profile-stat-recommended">0</span>
+                    <span class="stat-label">Consigliati</span>
+                  </div>
+                  <div class="profile-stat-item">
+                    <span class="stat-number" id="profile-stat-comments">0</span>
+                    <span class="stat-label">Commenti</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Profile Action Buttons (only visible for active user) -->
+            <div id="profile-owner-actions" class="profile-owner-actions" style="display: none;">
+              <button id="btn-profile-toggle-edit" class="btn-primary-play navigable focus-compact" tabindex="0">
+                ✏️ Modifica Info & Account
+              </button>
+            </div>
+          </div>
+
+          <!-- Active User Inline Edit Panel (Hidden by default, toggled on click) -->
+          <div id="profile-edit-panel" class="profile-edit-panel" style="display: none;">
+            <div class="profile-edit-header">
+              <h3 class="profile-edit-title">Modifica Profilo & Account</h3>
+              <button type="button" id="btn-profile-close-edit" class="modal-close-btn navigable focus-compact" title="Chiudi">✕</button>
+            </div>
+            <form id="profile-edit-form" class="profile-edit-form">
+              <div class="form-group">
+                <label class="form-label" for="profile-edit-name">Nome Profilo</label>
+                <input type="text" id="profile-edit-name" class="form-input navigable focus-compact" maxlength="20" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="profile-edit-bio">Biografia / Breve descrizione di te</label>
+                <textarea id="profile-edit-bio" class="form-textarea navigable focus-compact" rows="2" maxlength="250" placeholder="Scrivi due righe su di te, cosa ti piace guardare, i tuoi generi preferiti..."></textarea>
+                <span id="profile-bio-char-count" class="feedback-char-count" style="text-align: right; display: block;">0/250</span>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Avatar Profilo</label>
+                <div class="avatar-type-selector">
+                  <button type="button" id="profile-edit-tab-emoji" class="avatar-type-tab navigable focus-compact active" data-type="emoji">
+                    <span>😀</span> Emoji
+                  </button>
+                  <button type="button" id="profile-edit-tab-photo" class="avatar-type-tab navigable focus-compact" data-type="photo">
+                    <span>📷</span> Foto
+                  </button>
+                </div>
+
+                <!-- Emoji Picker -->
+                <div id="profile-edit-content-emoji" class="avatar-tab-content active">
+                  <div id="profile-edit-emoji-picker" class="emoji-picker-grid">
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🍿">🍿</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🦊">🦊</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🚀">🚀</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🪐">🪐</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🎬">🎬</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="👑">👑</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🍕">🍕</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🎮">🎮</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="👾">👾</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🐱">🐱</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🎧">🎧</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🔥">🔥</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="🏆">🏆</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="💎">💎</button>
+                    <button type="button" class="settings-emoji-btn navigable focus-compact" data-emoji="⚡">⚡</button>
+                  </div>
+                </div>
+
+                <!-- Photo Upload -->
+                <div id="profile-edit-content-photo" class="avatar-tab-content" style="display: none;">
+                  <div class="photo-upload-container">
+                    <div class="photo-preview-wrap">
+                      <div id="profile-edit-photo-preview" class="photo-preview-circle">
+                        <span class="photo-placeholder-icon">📷</span>
+                      </div>
+                      <input type="file" id="profile-edit-photo-input" accept="image/*" style="display: none;" />
+                    </div>
+                    <div class="photo-upload-actions">
+                      <button type="button" id="btn-profile-choose-photo" class="btn-secondary-glass navigable focus-compact">📁 Scegli Foto</button>
+                      <button type="button" id="btn-profile-remove-photo" class="btn-danger-glass navigable focus-compact" style="display: none;">✕ Rimuovi</button>
+                      <span class="photo-upload-hint">Foto quadrata compressa automaticamente (WebP)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="profile-edit-pin">Nuovo PIN (lascia vuoto per non cambiarlo)</label>
+                <input type="password" id="profile-edit-pin" class="form-input navigable focus-compact" placeholder="••••" maxlength="4" pattern="[0-9]*" inputmode="numeric" />
+              </div>
+
+              <div id="profile-edit-error" class="pin-error-msg" style="display: none;"></div>
+
+              <div class="settings-action-row" style="margin-top: 14px;">
+                <button type="button" id="btn-profile-switch-user" class="btn-secondary-glass navigable focus-compact">
+                  🔄 Cambia Profilo
+                </button>
+                <button type="button" id="btn-profile-delete-user" class="btn-danger-glass navigable focus-compact">
+                  🗑 Elimina Profilo
+                </button>
+                <button type="submit" id="btn-profile-save-changes" class="btn-primary-play navigable focus-compact">
+                  Salva Modifiche
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Profile Nav Content Tabs: Titoli Visti, Consigliati, Commenti -->
+          <div class="profile-tabs-bar">
+            <button class="profile-tab-btn active" data-tab="watched">
+              🎬 Titoli Visti (<span id="tab-count-watched">0</span>)
+            </button>
+            <button class="profile-tab-btn" data-tab="recommended">
+              ★ Consigliati (<span id="tab-count-recommended">0</span>)
+            </button>
+            <button class="profile-tab-btn" data-tab="comments">
+              💬 Commenti (<span id="tab-count-comments">0</span>)
+            </button>
+          </div>
+
+          <!-- Profile Tab Content Areas -->
+          <div class="profile-tab-panels">
+            <!-- 1. Watched Media Grid -->
+            <div id="profile-tab-watched" class="profile-tab-panel active">
+              <div id="profile-watched-grid" class="profile-media-grid"></div>
+            </div>
+
+            <!-- 2. Recommendations List -->
+            <div id="profile-tab-recommended" class="profile-tab-panel" style="display: none;">
+              <div id="profile-recommended-list" class="profile-items-list"></div>
+            </div>
+
+            <!-- 3. Comments List -->
+            <div id="profile-tab-comments" class="profile-tab-panel" style="display: none;">
+              <div id="profile-comments-list" class="profile-items-list"></div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
     </main>
 
     <!-- ====================================================================
@@ -237,6 +559,19 @@
                   <line x1="1" y1="1" x2="23" y2="23"></line>
                 </svg>
                 <span class="community-visibility-label">Nascondi alla community</span>
+              </button>
+              <button id="modal-btn-mark-finished" class="btn-secondary-glass btn-mark-finished navigable" tabindex="0" title="Segna come visto/finito" style="display: none;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <span class="finish-label">Segna come finito</span>
+              </button>
+              <button id="modal-btn-reset-progress" class="btn-secondary-glass btn-reset-progress navigable" tabindex="0" title="Azzera progressi (Segna come da guardare)" style="display: none;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                  <path d="M3 3v5h5"></path>
+                </svg>
+                <span class="reset-label">Segna come Da guardare</span>
               </button>
               <button id="modal-btn-remove-continue" class="btn-secondary-glass navigable" tabindex="0" style="display: none;">
                 Rimuovi da Continua

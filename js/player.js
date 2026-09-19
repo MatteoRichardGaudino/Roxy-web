@@ -374,16 +374,22 @@ const PlayerController = {
       });
     }
 
-    // Explicit click listener on player OSD: on Saturn stream, clicking on screen (not controls) hides OSD
+    // Double click to toggle fullscreen on player background / video / OSD
+    const handleDblClick = (e) => {
+      const isControl = !!(e.target && e.target.closest && e.target.closest('button, .osd-btn-circle, .osd-play-btn-large, .osd-progress-track, .osd-progress-wrapper, #player-next-ep-prompt, [role="button"]'));
+      if (!isControl) {
+        this.toggleFullscreen();
+      }
+    };
+
+    if (this.container) {
+      this.container.addEventListener('dblclick', handleDblClick);
+    }
+    if (this.videoEl) {
+      this.videoEl.addEventListener('dblclick', handleDblClick);
+    }
     if (this.osd) {
-      this.osd.addEventListener('click', (e) => {
-        if (!this.isSaturnPlayback()) return;
-        const isControl = !!(e.target && e.target.closest && e.target.closest('button, .osd-btn-circle, .osd-play-btn-large, .osd-progress-track, .osd-progress-wrapper, #player-next-ep-prompt, [role="button"]'));
-        if (!isControl) {
-          e.stopPropagation();
-          this.hideOSD(true);
-        }
-      });
+      this.osd.addEventListener('dblclick', handleDblClick);
     }
   },
 
@@ -395,9 +401,24 @@ const PlayerController = {
     this.prevEpisodeInfo = null;
     this.nextEpisodeInfo = null;
     this.isNextPromptDismissed = false;
+    this.currentSessionTime = 0;
+    this.estimatedDuration = 0;
     this.hideNextEpisodePrompt();
     this.updateTopBarEpisodeButtons();
     window.navigatorInstance.setPlayerActive(true);
+
+    // Completely unload previous video element and iframe to prevent stale timeupdate events
+    if (this.videoEl) {
+      try {
+        this.videoEl.pause();
+        this.videoEl.removeAttribute('src');
+        this.videoEl.load();
+      } catch (e) {}
+    }
+    if (this.iframeEl) {
+      this.iframeEl.removeAttribute('srcdoc');
+      this.iframeEl.src = 'about:blank';
+    }
 
     try {
       if (window.history && window.history.pushState) {
@@ -1082,6 +1103,11 @@ const PlayerController = {
                 n.seek(${resumeSec});
               }
 
+              // Explicitly trigger play for both new and resumed content
+              try {
+                n.play();
+              } catch(e) {}
+
               // Send progress notification to parent Roxy UI
               try {
                 window.parent.postMessage({
@@ -1277,12 +1303,18 @@ const PlayerController = {
     if (this.isActive && (this.isPlaying || force)) {
       this.osd.classList.add('hidden');
       this.lastHiddenAt = Date.now();
+      if (this.container) {
+        this.container.classList.add('cursor-hidden');
+      }
     }
   },
 
   showOSD() {
     if (!this.osd) return;
     this.osd.classList.remove('hidden');
+    if (this.container) {
+      this.container.classList.remove('cursor-hidden');
+    }
 
     if (this.osdTimeout) {
       clearTimeout(this.osdTimeout);
@@ -1327,11 +1359,12 @@ const PlayerController = {
   onEnded() {
     this.isPlaying = false;
     this.updatePlayBtnIcon();
-    this.hideNextEpisodePrompt();
 
     if (this.nextEpisodeInfo) {
-      console.log('[Roxy Player] Stream ended, auto-advancing to next episode:', this.nextEpisodeInfo);
-      this.playNextEpisode();
+      console.log('[Roxy Player] Stream ended, presenting next episode prompt');
+      this.isNextPromptDismissed = false;
+      this.showNextEpisodePrompt();
+      this.showOSD();
       return;
     }
 
@@ -1416,7 +1449,7 @@ const PlayerController = {
 
     const isSaturn = (item.source === 'animesaturn' || (item.id && String(item.id).startsWith('saturn_')));
     const isTv = !isSaturn && (item.media_type === 'tv' || (item.media_type !== 'movie' && (item.number_of_seasons !== undefined || (!!item.name && !item.title))));
-    if (!isTv) return;
+    if (!isTv && !isSaturn) return;
 
     const baseTitle = this.cleanBaseTitle(item);
 
@@ -1430,12 +1463,36 @@ const PlayerController = {
           ...item,
           source: 'animesaturn',
           title: baseTitle,
+          season: 1,
           episode: currentEp - 1,
           episode_name: `Episodio ${currentEp - 1}`
         };
       }
 
-      // 2. Next episode: fetch details to check total episode count
+      // Check if episode list already exists on item
+      if (Array.isArray(item.episodes) && item.episodes.length > 0) {
+        const currEpObj = item.episodes.find(e => Number(e.episode_number) === currentEp);
+        if (currEpObj && currEpObj.name) {
+          item.episode_name = currEpObj.name;
+          this.updatePlayerTitle(item);
+        }
+        if (currentEp < item.episodes.length) {
+          const nextEpNum = currentEp + 1;
+          const nextEpObj = item.episodes.find(e => Number(e.episode_number) === nextEpNum);
+          this.nextEpisodeInfo = {
+            ...item,
+            source: 'animesaturn',
+            title: baseTitle,
+            season: 1,
+            episode: nextEpNum,
+            episode_name: nextEpObj ? nextEpObj.name : `Episodio ${nextEpNum}`,
+            isNextSeason: false
+          };
+        }
+        this.updateTopBarEpisodeButtons();
+      }
+
+      // 2. Next episode: fetch details from AnimeSaturn addon to check total episode count
       try {
         const details = await AnimeSaturnService.getAnimeDetails(slug);
         const epCount = (details && Array.isArray(details.episodes)) ? details.episodes.length : 0;
@@ -1453,15 +1510,19 @@ const PlayerController = {
               ...item,
               source: 'animesaturn',
               title: baseTitle,
+              season: 1,
               episode: nextEpNum,
               episode_name: nextEpObj ? nextEpObj.name : `Episodio ${nextEpNum}`,
               isNextSeason: false
             };
+          } else {
+            this.nextEpisodeInfo = null;
           }
         }
       } catch (err) {
         console.warn('[Roxy Player] Error resolving Saturn adjacent episodes:', err);
       }
+      this.updateTopBarEpisodeButtons();
     } else {
       // TMDB TV Series
       const tvId = item.id;
@@ -1597,17 +1658,23 @@ const PlayerController = {
   },
 
   checkNextEpisodePrompt(currentTime, duration) {
-    if (!this.nextEpisodeInfo || this.isNextPromptDismissed) return;
+    if (!this.nextEpisodeInfo) return;
     if (!duration || duration <= 180 || !currentTime) return;
+    if (currentTime < 60) {
+      this.hideNextEpisodePrompt();
+      return;
+    }
 
     const remaining = duration - currentTime;
+    // If dismissed early by user with 'X', suppress until the final 20 seconds / credits
+    if (this.isNextPromptDismissed && remaining > 20) return;
     if (remaining <= 120 && remaining > 0) {
       this.showNextEpisodePrompt();
     }
   },
 
   showNextEpisodePrompt() {
-    if (!this.nextEpPrompt || this.isNextPromptDismissed || !this.nextEpisodeInfo) return;
+    if (!this.nextEpPrompt || !this.nextEpisodeInfo) return;
     if (this.promptNextLabel) {
       this.promptNextLabel.textContent = (this.nextEpisodeInfo && this.nextEpisodeInfo.isNextSeason) ? 'Prossima Stagione' : 'Prossimo Episodio';
     }
@@ -1628,6 +1695,7 @@ const PlayerController = {
   playNextEpisode() {
     if (!this.nextEpisodeInfo) return;
     const nextItem = { ...this.nextEpisodeInfo };
+    this.isNextPromptDismissed = false;
     this.hideNextEpisodePrompt();
 
     // Immediately update title to show next episode number and title without delay
@@ -1650,6 +1718,7 @@ const PlayerController = {
   playPrevEpisode() {
     if (!this.prevEpisodeInfo) return;
     const prevItem = { ...this.prevEpisodeInfo };
+    this.isNextPromptDismissed = false;
     this.hideNextEpisodePrompt();
 
     // Immediately update title to show previous episode number and title without delay
@@ -1708,37 +1777,13 @@ const PlayerController = {
   },
 
   handleKey(code, e) {
-    // If progress bar is focused, LEFT and RIGHT scrub the video
-    if (this.progressTrack && this.progressTrack.classList.contains('focused')) {
-      if (code === CONFIG.KEYS.LEFT) {
-        this.seek(-10);
-        return true;
-      }
-      if (code === CONFIG.KEYS.RIGHT) {
-        this.seek(10);
-        return true;
-      }
-    }
-
-    // Toggle fullscreen on 'F' key (70)
-    if (code === 70) {
-      this.toggleFullscreen();
+    // 1. Spacebar / Play-Pause / Key 'K'
+    if (code === 32 || (e && (e.code === 'Space' || e.key === ' ')) || code === CONFIG.KEYS.PLAY_PAUSE || code === 75 || (e && (e.key === 'k' || e.key === 'K'))) {
+      this.togglePlay();
       return true;
     }
 
-    // Next episode on 'N' key (78)
-    if ((code === 78 || (e && (e.key === 'n' || e.key === 'N'))) && this.nextEpisodeInfo) {
-      this.playNextEpisode();
-      return true;
-    }
-
-    // Previous episode on 'P' key (80)
-    if ((code === 80 || (e && (e.key === 'p' || e.key === 'P'))) && this.prevEpisodeInfo) {
-      this.playPrevEpisode();
-      return true;
-    }
-
-    // Return true if handled
+    // 2. Play / Pause dedicated keys
     if (code === CONFIG.KEYS.PLAY) {
       if (!this.isPlaying) this.togglePlay();
       return true;
@@ -1747,22 +1792,64 @@ const PlayerController = {
       if (this.isPlaying) this.togglePlay();
       return true;
     }
-    if (code === CONFIG.KEYS.PLAY_PAUSE) {
-      this.togglePlay();
-      return true;
-    }
-    if (code === CONFIG.KEYS.FAST_FORWARD) {
-      this.seek(10);
-      return true;
-    }
-    if (code === CONFIG.KEYS.REWIND) {
+
+    // 3. Left Arrow / Rewind / Key 'J' (Seek -10s)
+    if (code === CONFIG.KEYS.REWIND || code === CONFIG.KEYS.LEFT || (e && (e.key === 'ArrowLeft' || e.key === 'j' || e.key === 'J'))) {
       this.seek(-10);
       return true;
     }
-    if (code === CONFIG.KEYS.UP || code === CONFIG.KEYS.DOWN || code === CONFIG.KEYS.LEFT || code === CONFIG.KEYS.RIGHT) {
-      this.showOSD();
-      return false; // let spatial nav move inside OSD
+
+    // 4. Right Arrow / Fast-Forward / Key 'L' (Seek +10s)
+    if (code === CONFIG.KEYS.FAST_FORWARD || code === CONFIG.KEYS.RIGHT || (e && (e.key === 'ArrowRight' || e.key === 'l' || e.key === 'L'))) {
+      this.seek(10);
+      return true;
     }
+
+    // 5. Up Arrow (Volume +10% on native video or show OSD)
+    if (code === CONFIG.KEYS.UP || (e && e.key === 'ArrowUp')) {
+      if (this.videoEl && this.videoEl.style.display !== 'none') {
+        this.videoEl.volume = Math.min(1, this.videoEl.volume + 0.1);
+      }
+      this.showOSD();
+      return true;
+    }
+
+    // 6. Down Arrow (Volume -10% on native video or show OSD)
+    if (code === CONFIG.KEYS.DOWN || (e && e.key === 'ArrowDown')) {
+      if (this.videoEl && this.videoEl.style.display !== 'none') {
+        this.videoEl.volume = Math.max(0, this.videoEl.volume - 0.1);
+      }
+      this.showOSD();
+      return true;
+    }
+
+    // 7. Toggle Mute on 'M' key (77)
+    if (code === 77 || (e && (e.key === 'm' || e.key === 'M'))) {
+      if (this.videoEl && this.videoEl.style.display !== 'none') {
+        this.videoEl.muted = !this.videoEl.muted;
+      }
+      this.showOSD();
+      return true;
+    }
+
+    // 8. Toggle fullscreen on 'F' key (70)
+    if (code === 70 || (e && (e.key === 'f' || e.key === 'F'))) {
+      this.toggleFullscreen();
+      return true;
+    }
+
+    // 9. Next episode on 'N' key (78)
+    if ((code === 78 || (e && (e.key === 'n' || e.key === 'N'))) && this.nextEpisodeInfo) {
+      this.playNextEpisode();
+      return true;
+    }
+
+    // 10. Previous episode on 'P' key (80)
+    if ((code === 80 || (e && (e.key === 'p' || e.key === 'P'))) && this.prevEpisodeInfo) {
+      this.playPrevEpisode();
+      return true;
+    }
+
     return false;
   }
 };

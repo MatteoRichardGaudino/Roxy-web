@@ -31,6 +31,8 @@ class RoxyApp {
     this.bindModalEvents();
     this.bindProfileEvents();
     this.bindSearchEvents();
+    this.bindFeedbackEvents();
+    this.bindUserProfileEvents();
 
     // 1. Sync updated domains from GitHub in background (non-blocking)
     if (window.DomainManager) {
@@ -46,6 +48,7 @@ class RoxyApp {
       this.updateHeaderProfileBadge(activeUser);
       StorageService.syncFromCloud().then(() => {
         this.renderContinueWatchingRow();
+        this.renderHomeWatchlistRow();
       }).catch(() => {});
     } else {
       setTimeout(() => this.showProfileSelectorModal(), 400);
@@ -148,6 +151,10 @@ class RoxyApp {
       this.loadTVCatalog();
     } else if (sectionName === 'watchlist') {
       this.renderWatchlist();
+    } else if (sectionName === 'users') {
+      this.loadUsersSection();
+    } else if (sectionName === 'feedback') {
+      this.loadFeedbackSection();
     } else if (sectionName === 'search') {
       setTimeout(() => {
         const wrapper = document.querySelector('.search-input-wrapper');
@@ -185,6 +192,9 @@ class RoxyApp {
 
       // 1b. Render Community feed row
       this.renderCommunityRow();
+
+      // 1c. Render Home Watchlist row
+      this.renderHomeWatchlistRow();
 
       // Helper to render each row into its designated slot as soon as its request completes
       const renderProgressiveRow = (slotId, title, itemsPromise, options = {}) => {
@@ -242,6 +252,64 @@ class RoxyApp {
     }
   }
 
+  // =========================================================================
+  // Horizontal Carousel Scroll Chevrons
+  // =========================================================================
+  setupCarouselArrows(container) {
+    if (!container) return;
+    const carousel = container.querySelector('.row-carousel');
+    if (!carousel) return;
+
+    let wrapper = carousel.parentElement;
+    if (!wrapper || !wrapper.classList.contains('carousel-wrapper')) {
+      wrapper = document.createElement('div');
+      wrapper.className = 'carousel-wrapper';
+      carousel.parentNode.insertBefore(wrapper, carousel);
+      wrapper.appendChild(carousel);
+
+      const btnLeft = document.createElement('button');
+      btnLeft.className = 'carousel-arrow carousel-arrow-left';
+      btnLeft.setAttribute('aria-label', 'Scorri indietro');
+      btnLeft.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>`;
+
+      const btnRight = document.createElement('button');
+      btnRight.className = 'carousel-arrow carousel-arrow-right';
+      btnRight.setAttribute('aria-label', 'Scorri avanti');
+      btnRight.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>`;
+
+      wrapper.insertBefore(btnLeft, carousel);
+      wrapper.appendChild(btnRight);
+
+      btnLeft.addEventListener('click', (e) => {
+        e.stopPropagation();
+        carousel.scrollBy({ left: -Math.floor(carousel.clientWidth * 0.75), behavior: 'smooth' });
+      });
+
+      btnRight.addEventListener('click', (e) => {
+        e.stopPropagation();
+        carousel.scrollBy({ left: Math.floor(carousel.clientWidth * 0.75), behavior: 'smooth' });
+      });
+    }
+
+    const btnLeft = wrapper.querySelector('.carousel-arrow-left');
+    const btnRight = wrapper.querySelector('.carousel-arrow-right');
+
+    const updateArrowVisibility = () => {
+      if (!carousel || !btnLeft || !btnRight) return;
+      const canScrollLeft = carousel.scrollLeft > 10;
+      const canScrollRight = (carousel.scrollWidth - carousel.clientWidth - carousel.scrollLeft) > 10;
+
+      btnLeft.classList.toggle('is-visible', canScrollLeft);
+      btnRight.classList.toggle('is-visible', canScrollRight);
+    };
+
+    carousel.addEventListener('scroll', updateArrowVisibility, { passive: true });
+    wrapper.addEventListener('mouseenter', updateArrowVisibility);
+
+    setTimeout(updateArrowVisibility, 150);
+    setTimeout(updateArrowVisibility, 600);
+  }
+
   renderRowContent(slotElement, title, items) {
     if (!items || items.length === 0 || !slotElement) return;
 
@@ -257,8 +325,9 @@ class RoxyApp {
       </div>
     `;
 
-    // Ensure social viewer avatar stack is up to date
+    // Ensure social viewer avatar stack is up to date and attach scroll arrows
     this.updateCardsSocialStacks(slotElement);
+    this.setupCarouselArrows(slotElement);
 
     // Attach click listeners: play button starts playback, card body opens details modal
     slotElement.querySelectorAll('.media-card').forEach(card => {
@@ -663,6 +732,8 @@ class RoxyApp {
       </div>
     `;
 
+    this.setupCarouselArrows(container);
+
     // Attach click events: Play button starts playback directly, clicking the card body opens details modal
     container.querySelectorAll('.continue-card').forEach(card => {
       const rawId = card.getAttribute('data-id');
@@ -759,16 +830,14 @@ class RoxyApp {
         container = document.createElement('div');
         container.id = 'community-row';
         container.className = 'content-row';
+      }
 
-        // Insert right after continue-watching-row if present, or as first element
-        const contRow = document.getElementById('continue-watching-row');
-        if (contRow && contRow.nextSibling) {
-          currentWrapper.insertBefore(container, contRow.nextSibling);
-        } else if (contRow) {
-          currentWrapper.appendChild(container);
-        } else {
-          currentWrapper.insertBefore(container, currentWrapper.firstChild);
-        }
+      // Position right after continue-watching-row if present, or as first element in rows container
+      const contRow = document.getElementById('continue-watching-row');
+      if (contRow && contRow.nextSibling !== container) {
+        currentWrapper.insertBefore(container, contRow.nextSibling);
+      } else if (!contRow && currentWrapper.firstChild !== container) {
+        currentWrapper.insertBefore(container, currentWrapper.firstChild);
       }
 
       container.innerHTML = `
@@ -849,6 +918,8 @@ class RoxyApp {
         </div>
       `;
 
+      this.setupCarouselArrows(container);
+
       // Attach click events: opening the media details modal
       container.querySelectorAll('.community-feed-card').forEach(card => {
         card.addEventListener('click', () => {
@@ -895,6 +966,7 @@ class RoxyApp {
 
     parent.appendChild(row);
     this.updateCardsSocialStacks(row);
+    this.setupCarouselArrows(row);
 
     // Attach click listeners: play button starts playback, card body opens details modal
     row.querySelectorAll('.media-card').forEach(card => {
@@ -1008,21 +1080,92 @@ class RoxyApp {
 
     // Populate compact social viewers strip before overview
     const modalSocialViewers = document.getElementById('modal-social-viewers');
-    const refreshModalSocialViewers = () => {
+    const refreshModalSocialViewers = async () => {
       if (!modalSocialViewers) return;
-      const viewers = (window.SupabaseService && typeof SupabaseService.getMediaSocialActivity === 'function')
-        ? SupabaseService.getMediaSocialActivity(data.id, true)
+      let viewers = (window.SupabaseService && typeof SupabaseService.getMediaSocialActivity === 'function')
+        ? [...SupabaseService.getMediaSocialActivity(data.id, true)]
         : [];
+
+      // Check recommendations
+      let recUsers = [];
+      try {
+        if (window.SupabaseService && typeof SupabaseService.getCommentsForMedia === 'function') {
+          const allComments = await SupabaseService.getCommentsForMedia(data.id);
+          recUsers = allComments.filter(c => c.comment_type === 'recommendation');
+        }
+      } catch (e) {}
+
+      const activeUser = (window.SupabaseService && typeof SupabaseService.getActiveUser === 'function')
+        ? SupabaseService.getActiveUser()
+        : null;
+
+      if (activeUser) {
+        const activeUserId = String(activeUser.id);
+        const myProgress = StorageService.getItemProgress(data.id);
+        const myDropped = StorageService.isDropped(data.id);
+        const myCont = StorageService.getContinueWatching().some(i => String(i.id) === String(data.id));
+        const myCompleted = !!(myProgress && (myProgress.progress >= 95 || myProgress.isCompleted));
+        const myStarted = !!(myProgress && (myProgress.currentTime > 5 || myProgress.progress > 0)) || myCont;
+        const myRec = recUsers.some(r => String(r.user_id) === activeUserId);
+
+        const existingIdx = viewers.findIndex(v => v.userId === activeUserId);
+        if (myDropped || myCompleted || myStarted || myRec) {
+          const myStatus = myRec ? 'recommended' : (myDropped ? 'dropped' : (myCompleted ? 'completed' : 'watching'));
+          const myEntry = {
+            userId: activeUserId,
+            username: activeUser.username || 'Tu',
+            avatar_emoji: activeUser.avatar_emoji || '🍿',
+            avatar_url: activeUser.avatar_url || null,
+            status: myStatus,
+            isRecommended: myRec,
+            progress: myProgress ? myProgress.progress : 0
+          };
+          if (existingIdx >= 0) {
+            viewers[existingIdx] = myEntry;
+          } else {
+            viewers.unshift(myEntry);
+          }
+        } else if (existingIdx >= 0) {
+          viewers.splice(existingIdx, 1);
+        }
+      }
+
+      // Add other friends who recommended this title
+      for (const rec of recUsers) {
+        const rUserId = String(rec.user_id);
+        const existing = viewers.find(v => v.userId === rUserId);
+        if (existing) {
+          existing.isRecommended = true;
+        } else {
+          viewers.push({
+            userId: rUserId,
+            username: rec.username || 'Amico',
+            avatar_emoji: rec.avatar_emoji || '🍿',
+            avatar_url: rec.avatar_url || null,
+            status: 'recommended',
+            isRecommended: true,
+            progress: 0
+          });
+        }
+      }
+
+      const commentsCount = (document.getElementById('modal-comments-count')?.textContent) || '0';
 
       if (viewers && viewers.length > 0) {
         modalSocialViewers.style.display = 'flex';
         modalSocialViewers.innerHTML = `
           <div class="social-viewers-header">
-            <span class="social-viewers-icon">👥</span>
-            <span class="social-viewers-title">Amici & Community (${viewers.length})</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="social-viewers-icon">👥</span>
+              <span class="social-viewers-title">Amici & Community (${viewers.length})</span>
+            </div>
+            <button id="modal-btn-jump-comments" class="btn-jump-comments navigable focus-compact" type="button" title="Scorri rapidamente ai commenti">
+              💬 Commenti <span class="jump-comments-count-pill" id="modal-jump-comments-count">${commentsCount}</span>
+            </button>
           </div>
           <div class="social-viewers-list">
             ${viewers.map(v => {
+              const isRec = v.isRecommended || v.status === 'recommended';
               const isDropped = v.status === 'dropped';
               const isCompleted = v.status === 'completed';
               const avatarHtml = v.avatar_url
@@ -1033,7 +1176,11 @@ class RoxyApp {
               let badgeClass = 'badge-watching';
               let statusLabel = '▶ Sta guardando';
 
-              if (isDropped) {
+              if (isRec) {
+                statusClass = 'status-recommended';
+                badgeClass = 'badge-recommended';
+                statusLabel = '★ Consigliato';
+              } else if (isDropped) {
                 statusClass = 'status-dropped';
                 badgeClass = 'badge-dropped';
                 statusLabel = '👎 Ha droppato';
@@ -1055,6 +1202,17 @@ class RoxyApp {
             }).join('')}
           </div>
         `;
+
+        const jumpBtn = modalSocialViewers.querySelector('#modal-btn-jump-comments');
+        if (jumpBtn) {
+          jumpBtn.onclick = (e) => {
+            e.stopPropagation();
+            const commentsSec = document.querySelector('.modal-comments-section');
+            if (commentsSec) {
+              commentsSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          };
+        }
       } else {
         modalSocialViewers.style.display = 'none';
         modalSocialViewers.innerHTML = '';
@@ -1097,22 +1255,32 @@ class RoxyApp {
         episodesContainer.innerHTML = `
           <h3 class="modal-section-title">Episodi Anime (${data.episodes.length})</h3>
           <div class="episodes-grid" id="modal-episodes-grid">
-            ${data.episodes.map(ep => `
+            ${data.episodes.map(ep => {
+              const epProg = StorageService.getItemProgress(data.id, 1, ep.episode_number);
+              const hasProg = epProg && epProg.progress > 0;
+              const isComp = epProg && epProg.progress >= 95;
+              return `
               <div class="episode-card navigable" tabindex="0" data-episode="${ep.episode_number}">
                 <div class="episode-thumb-wrap">
                   <img src="${(ep.still_path && ep.still_path.startsWith('http')) ? ep.still_path : (data.backdrop_path || data.poster_path)}" alt="${ep.name}" loading="lazy" />
+                  ${hasProg ? `
+                    <div class="episode-progress-bar">
+                      <div class="episode-progress-fill" style="width: ${isComp ? 100 : epProg.progress}%;"></div>
+                    </div>
+                  ` : ''}
                 </div>
                 <div class="episode-info">
                   <div class="episode-title-row">
                     <div class="episode-number-title">${ep.episode_number}. ${ep.name || `Episodio ${ep.episode_number}`}</div>
                     <div style="display:flex; align-items:center; gap:8px;">
                       <span class="${data.isDub ? 'badge-dub' : 'badge-sub'}">${data.isDub ? 'DUB' : 'SUB'}</span>
+                      ${isComp ? `<span class="episode-badge-completed">✓ Visto</span>` : ''}
                     </div>
                   </div>
                   <div class="episode-overview">${ep.overview || `Episodio ${ep.episode_number}`}</div>
                 </div>
               </div>
-            `).join('')}
+            `;}).join('')}
           </div>
         `;
 
@@ -1121,6 +1289,8 @@ class RoxyApp {
           epCard.addEventListener('click', () => {
             const epNum = parseInt(epCard.getAttribute('data-episode'));
             const epData = data.episodes.find(e => e.episode_number === epNum);
+            const epSaved = StorageService.getItemProgress(data.id, 1, epNum);
+            const epResumeSec = (epSaved && epSaved.currentTime > 5 && epSaved.progress < 95) ? epSaved.currentTime : null;
             this.closeModal();
             PlayerController.play({
               ...data,
@@ -1128,7 +1298,7 @@ class RoxyApp {
               slug: data.slug || item.slug,
               episode: epNum,
               episode_name: epData ? epData.name : `Episodio ${epNum}`
-            });
+            }, null, epResumeSec);
           });
         });
       } else if (!isSaturn && (data.media_type === 'tv' || (data.media_type !== 'movie' && (data.name && !data.title))) && data.seasons && data.seasons.length > 0) {
@@ -1164,23 +1334,32 @@ class RoxyApp {
 
           grid.innerHTML = episodes.map(ep => {
             const epAvail = CatalogService.isEpisodeAvailable(data.id, seasonNum, ep.episode_number);
+            const epProg = StorageService.getItemProgress(data.id, seasonNum, ep.episode_number);
+            const hasProg = epProg && epProg.progress > 0;
+            const isComp = epProg && epProg.progress >= 95;
             return `
             <div class="episode-card navigable ${epAvail ? '' : 'unavailable'}" tabindex="0" data-season="${seasonNum}" data-episode="${ep.episode_number}" data-avail="${epAvail}">
               <div class="episode-thumb-wrap">
                 <img src="${TMDBService.getBackdropUrl(ep.still_path || data.backdrop_path, 'w500')}" alt="${ep.name}" loading="lazy" />
+                ${hasProg ? `
+                  <div class="episode-progress-bar">
+                    <div class="episode-progress-fill" style="width: ${isComp ? 100 : epProg.progress}%;"></div>
+                  </div>
+                ` : ''}
               </div>
               <div class="episode-info">
                 <div class="episode-title-row">
                   <div class="episode-number-title">${ep.episode_number}. ${ep.name || `Episodio ${ep.episode_number}`}</div>
                   <div style="display:flex; align-items:center; gap:8px;">
                     ${!epAvail ? `<span class="badge-unavailable">Non disp.</span>` : ''}
+                    ${isComp ? `<span class="episode-badge-completed">✓ Visto</span>` : ''}
                     <div class="episode-runtime">${ep.runtime ? `${ep.runtime} min` : ''}</div>
                   </div>
                 </div>
                 <div class="episode-overview">${ep.overview || 'Nessuna descrizione disponibile.'}</div>
               </div>
             </div>
-          `}).join('');
+          `;}).join('');
 
           // Episode click listeners
           grid.querySelectorAll('.episode-card').forEach(epCard => {
@@ -1274,6 +1453,8 @@ class RoxyApp {
         const added = StorageService.toggleWatchlist(data);
         btnWatchlist.innerHTML = added ? '✓ Nella Lista' : '+ La Mia Lista';
         this.showToast(added ? `"${data.title || data.name}" aggiunto a La mia lista` : 'Rimosso da La mia lista');
+        this.renderWatchlist();
+        this.renderHomeWatchlistRow();
       };
     }
 
@@ -1369,6 +1550,7 @@ class RoxyApp {
             this.renderCommunityRow();
             this.updateCardsSocialStacks();
             refreshModalSocialViewers();
+            if (typeof refreshModalProgressButtons === 'function') refreshModalProgressButtons();
           } catch (err) {
             console.error('[Roxy] Error updating dropped status:', err);
             this.showToast('Errore durante l\'aggiornamento dello stato.');
@@ -1379,6 +1561,79 @@ class RoxyApp {
       } else {
         btnDrop.style.display = 'none';
       }
+    }
+
+    // "Segna come finito" and "Segna come Da guardare" (Azzera progressi) Handlers
+    const btnMarkFinished = document.getElementById('modal-btn-mark-finished');
+    const btnResetProgress = document.getElementById('modal-btn-reset-progress');
+
+    const refreshModalProgressButtons = () => {
+      const p = StorageService.getItemProgress(mediaId);
+      const isCont = StorageService.getContinueWatching().some(i => String(i.id) === mediaId);
+      const currDropped = StorageService.isDropped(mediaId);
+      const currStarted = !!(p && (p.currentTime > 5 || p.progress > 0)) || isCont;
+      const isSaturnItem = (data.source === 'animesaturn' || mediaId.startsWith('saturn_'));
+      const isTvItem = !isSaturnItem && (data.media_type === 'tv' || (data.media_type !== 'movie' && (data.number_of_seasons !== undefined || (!!data.name && !data.title))));
+      const isSeriesItem = isTvItem || isSaturnItem || data.media_type === 'anime';
+      const currCompleted = !!(p && (p.isCompleted || (!isSeriesItem && p.progress >= 95) || (isSeriesItem && p.isLastEpisode && p.progress >= 95)));
+
+      if (btnMarkFinished) {
+        if (!currCompleted) {
+          btnMarkFinished.style.display = 'inline-flex';
+        } else {
+          btnMarkFinished.style.display = 'none';
+        }
+      }
+
+      if (btnResetProgress) {
+        if (currStarted || currCompleted || currDropped) {
+          btnResetProgress.style.display = 'inline-flex';
+        } else {
+          btnResetProgress.style.display = 'none';
+        }
+      }
+    };
+
+    refreshModalProgressButtons();
+
+    if (btnMarkFinished) {
+      btnMarkFinished.onclick = async () => {
+        btnMarkFinished.disabled = true;
+        try {
+          StorageService.setMediaCompleted(mediaId, true, data);
+          this.showToast(`"${data.title || data.name}" segnato come finito! ✓`);
+          refreshModalProgressButtons();
+          refreshModalSocialViewers();
+          if (btnRemoveContinue) btnRemoveContinue.style.display = 'none';
+          this.renderContinueWatchingRow();
+          this.renderCommunityRow();
+          this.updateCardsSocialStacks();
+        } catch (e) {
+          console.error('[Roxy] Error marking as finished:', e);
+        } finally {
+          btnMarkFinished.disabled = false;
+        }
+      };
+    }
+
+    if (btnResetProgress) {
+      btnResetProgress.onclick = async () => {
+        btnResetProgress.disabled = true;
+        try {
+          StorageService.resetMediaProgress(mediaId);
+          this.showToast(`Progressi azzerati per "${data.title || data.name}". Segnato come Da guardare.`);
+          refreshModalProgressButtons();
+          refreshModalSocialViewers();
+          if (btnRemoveContinue) btnRemoveContinue.style.display = 'none';
+          this.renderContinueWatchingRow();
+          this.renderCommunityRow();
+          this.updateCardsSocialStacks();
+        } catch (e) {
+          console.error('[Roxy] Error resetting progress:', e);
+        } finally {
+          btnResetProgress.disabled = false;
+        }
+      };
     }
 
     // =========================================================================
@@ -1434,6 +1689,10 @@ class RoxyApp {
         const comments = await SupabaseService.getCommentsForMedia(mediaId);
         if (modalCommentsCount) {
           modalCommentsCount.textContent = String(comments.length);
+        }
+        const jumpCount = document.getElementById('modal-jump-comments-count');
+        if (jumpCount) {
+          jumpCount.textContent = String(comments.length);
         }
 
         if (comments.length === 0) {
@@ -1672,8 +1931,9 @@ class RoxyApp {
     const profileBtn = document.getElementById('nav-profile-btn');
     if (profileBtn) {
       profileBtn.addEventListener('click', () => {
-        if (SupabaseService.getActiveUser()) {
-          this.showProfileSettingsModal();
+        const user = SupabaseService.getActiveUser();
+        if (user) {
+          this.openUserProfile(user.id);
         } else {
           this.showProfileSelectorModal();
         }
@@ -1932,22 +2192,37 @@ class RoxyApp {
       btnPinCancel.addEventListener('click', () => this.closePinModal());
     }
 
-    // Physical / Remote keyboard numbers for PIN
+    // Physical / Remote keyboard numbers for PIN (Capture phase stops webOS TV channel switching)
     window.addEventListener('keydown', (e) => {
       const pinModal = document.getElementById('pin-modal');
       if (pinModal && pinModal.style.display !== 'none') {
-        if (e.key >= '0' && e.key <= '9') {
+        const code = e.keyCode || e.which;
+        let digit = null;
+        if (code >= 48 && code <= 57) digit = String(code - 48);
+        else if (code >= 96 && code <= 105) digit = String(code - 96);
+        else if (e.key >= '0' && e.key <= '9') digit = e.key;
+
+        if (digit !== null) {
           e.preventDefault();
-          this.handlePinDigit(e.key);
-        } else if (e.key === 'Backspace') {
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          this.handlePinDigit(digit);
+          return false;
+        } else if (code === 8 || e.key === 'Backspace') {
           e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
           this.handlePinDelete();
-        } else if (e.key === 'Escape') {
+          return false;
+        } else if (code === 27 || code === 461 || e.key === 'Escape') {
           e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
           this.closePinModal();
+          return false;
         }
       }
-    });
+    }, true);
   }
 
   renderAvatarHtml(user, className = 'profile-avatar-img', fallbackEmoji = '🍿') {
@@ -2601,6 +2876,241 @@ class RoxyApp {
   }
 
   // =========================================================================
+  // Feedback & Feature Requests Controller
+  // =========================================================================
+  bindFeedbackEvents() {
+    this.currentFeedbackType = 'bug';
+    this.currentFeedbackFilter = 'all';
+
+    const form = document.getElementById('feedback-form');
+    const typeButtons = document.querySelectorAll('.type-toggle-btn');
+    const titleInput = document.getElementById('feedback-input-title');
+    const descInput = document.getElementById('feedback-input-desc');
+    const charCounter = document.getElementById('feedback-char-count');
+    const submitBtn = document.getElementById('btn-submit-feedback');
+    const filterButtons = document.querySelectorAll('.feed-filter-btn');
+
+    typeButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        typeButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.currentFeedbackType = btn.getAttribute('data-type') || 'bug';
+        if (titleInput) {
+          titleInput.placeholder = this.currentFeedbackType === 'bug'
+            ? 'Es. Errore streaming anime / Player bloccato...'
+            : 'Es. Aggiungi filtro per anno / Modalità offline...';
+        }
+      });
+    });
+
+    if (descInput && charCounter) {
+      descInput.addEventListener('input', () => {
+        const len = descInput.value.length;
+        charCounter.textContent = `${len}/600`;
+        charCounter.style.color = len >= 580 ? '#ef4444' : 'var(--text-dim)';
+      });
+    }
+
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const activeUser = SupabaseService.getActiveUser();
+        if (!activeUser) {
+          this.showToast('Seleziona prima il tuo profilo per inviare feedback!');
+          this.showProfileSelectorModal();
+          return;
+        }
+
+        const title = titleInput ? titleInput.value.trim() : '';
+        const desc = descInput ? descInput.value.trim() : '';
+        if (!desc) {
+          this.showToast('Inserisci una descrizione valida.');
+          return;
+        }
+
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+          await SupabaseService.createFeedbackEntry({
+            type: this.currentFeedbackType,
+            title: title,
+            description: desc
+          });
+          this.showToast('Segnalazione inviata con successo! Grazie per il supporto 🍿');
+          if (titleInput) titleInput.value = '';
+          if (descInput) descInput.value = '';
+          if (charCounter) charCounter.textContent = '0/600';
+          this.loadFeedbackSection();
+        } catch (err) {
+          console.error('[Roxy] Error submitting feedback:', err);
+          this.showToast(err.message || 'Errore durante l\'invio del feedback.');
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+
+    filterButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        filterButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.currentFeedbackFilter = btn.getAttribute('data-filter') || 'all';
+        this.loadFeedbackSection();
+      });
+    });
+  }
+
+  async loadFeedbackSection() {
+    const listContainer = document.getElementById('feedback-list-container');
+    const totalCountBadge = document.getElementById('feedback-total-count');
+    if (!listContainer) return;
+
+    listContainer.innerHTML = '<div class="feedback-loading">Caricamento bacheca feedback...</div>';
+
+    try {
+      const entries = await SupabaseService.getFeedbackEntries();
+      if (totalCountBadge) {
+        totalCountBadge.textContent = String(entries.length);
+      }
+
+      let filtered = entries;
+      if (this.currentFeedbackFilter === 'bug') {
+        filtered = entries.filter(e => e.type === 'bug');
+      } else if (this.currentFeedbackFilter === 'feature') {
+        filtered = entries.filter(e => e.type === 'feature');
+      }
+
+      if (filtered.length === 0) {
+        listContainer.innerHTML = '<div class="feedback-empty-state">Nessuna segnalazione presente in questa categoria. Lascia tu la prima! 🍿</div>';
+        return;
+      }
+
+      const activeUser = SupabaseService.getActiveUser();
+      const currentUserId = activeUser ? String(activeUser.id) : null;
+
+      listContainer.innerHTML = filtered.map(item => {
+        const isBug = item.type === 'bug';
+        const isCompleted = item.isCompleted;
+        const isOwn = currentUserId && String(item.userId) === currentUserId;
+        const timeAgo = this.formatTimeAgo(item.createdAt);
+
+        const authorAvatarHtml = item.avatar_url
+          ? `<img src="${item.avatar_url}" alt="${this.escapeHtml(item.username)}" onerror="this.outerHTML='${this.escapeHtml(item.avatar_emoji || '🍿')}'" />`
+          : this.escapeHtml(item.avatar_emoji || '🍿');
+
+        // Upvoters avatars stack
+        const maxAvatars = 5;
+        const displayUpvoters = (item.upvoters || []).slice(0, maxAvatars);
+        const remainingUpvoters = (item.upvoters || []).length - maxAvatars;
+
+        const upvotersHtml = displayUpvoters.map(u => {
+          const uAvatar = u.avatar_url
+            ? `<img src="${u.avatar_url}" alt="${this.escapeHtml(u.username)}" onerror="this.outerHTML='${this.escapeHtml(u.avatar_emoji || '🍿')}'" />`
+            : this.escapeHtml(u.avatar_emoji || '🍿');
+          return `<div class="feedback-upvoter-avatar" title="${this.escapeHtml(u.username)}">${uAvatar}</div>`;
+        }).join('');
+
+        const remainingHtml = remainingUpvoters > 0
+          ? `<div class="feedback-upvoter-avatar feedback-upvoters-more">+${remainingUpvoters}</div>`
+          : '';
+
+        return `
+          <div class="feedback-card ${isCompleted ? 'is-completed-card' : ''}" data-id="${item.id}">
+            <div class="feedback-card-top">
+              <div class="feedback-author-meta">
+                <div class="feedback-author-avatar">${authorAvatarHtml}</div>
+                <div>
+                  <div class="feedback-author-name">${this.escapeHtml(item.username)}</div>
+                  <div class="feedback-time-ago">${timeAgo}</div>
+                </div>
+              </div>
+              <div class="feedback-card-tags">
+                <span class="${isBug ? 'tag-type-bug' : 'tag-type-feature'}">${isBug ? '🐞 Bug' : '✨ Feature'}</span>
+                ${isCompleted ? `<span class="tag-completed">✓ ${isBug ? 'Risolto' : 'Completato'}</span>` : ''}
+                ${isOwn ? `
+                  <button class="btn-delete-feedback navigable focus-compact" data-id="${item.id}" title="Elimina la tua segnalazione" aria-label="Elimina">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="3 6 5 6 21 6"></polyline>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+
+            <div class="feedback-card-body">
+              <div class="feedback-card-title">${this.escapeHtml(item.title)}</div>
+              <div class="feedback-card-desc">${this.escapeHtml(item.description)}</div>
+            </div>
+
+            <div class="feedback-card-footer">
+              <button class="btn-upvote navigable focus-compact ${item.hasUpvoted ? 'has-upvoted' : ''}" data-id="${item.id}" title="Vota questa richiesta">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="${item.hasUpvoted ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+                <span>${item.hasUpvoted ? 'Votato' : 'Vota'}</span>
+                <strong class="upvote-count">${item.upvotesCount}</strong>
+              </button>
+
+              ${(item.upvoters && item.upvoters.length > 0) ? `
+                <div class="feedback-upvoters-stack" title="${item.upvoters.map(u => u.username).join(', ')}">
+                  ${upvotersHtml}
+                  ${remainingHtml}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Bind Upvote click handlers
+      listContainer.querySelectorAll('.btn-upvote').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const activeUser = SupabaseService.getActiveUser();
+          if (!activeUser) {
+            this.showToast('Seleziona prima il tuo profilo per votare!');
+            this.showProfileSelectorModal();
+            return;
+          }
+          const id = btn.getAttribute('data-id');
+          btn.disabled = true;
+          try {
+            await SupabaseService.toggleFeedbackUpvote(id);
+            this.loadFeedbackSection();
+          } catch (err) {
+            this.showToast(err.message || 'Errore durante il voto.');
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      });
+
+      // Bind Delete click handlers
+      listContainer.querySelectorAll('.btn-delete-feedback').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const id = btn.getAttribute('data-id');
+          if (!window.confirm('Sei sicuro di voler eliminare questa segnalazione?')) return;
+          btn.disabled = true;
+          try {
+            await SupabaseService.deleteFeedbackEntry(id);
+            this.showToast('Segnalazione eliminata.');
+            this.loadFeedbackSection();
+          } catch (err) {
+            this.showToast(err.message || 'Errore durante l\'eliminazione.');
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      });
+
+    } catch (err) {
+      console.error('[Roxy] Error loading feedback section:', err);
+      listContainer.innerHTML = '<div class="feedback-empty-state">Errore durante il caricamento dei feedback.</div>';
+    }
+  }
+
+  // =========================================================================
   // Toast Notifications
   // =========================================================================
   showToast(message) {
@@ -2619,6 +3129,636 @@ class RoxyApp {
       toast.style.transition = 'all 0.3s ease';
       setTimeout(() => toast.remove(), 300);
     }, 3000);
+  }
+
+  // =========================================================================
+  // Home Watchlist Row
+  // =========================================================================
+  renderHomeWatchlistRow() {
+    const rowsWrapper = document.getElementById('home-rows-container');
+    if (!rowsWrapper) return;
+
+    const list = StorageService.getWatchlist();
+    let container = document.getElementById('home-watchlist-row');
+
+    if (!list || list.length === 0) {
+      if (container) container.remove();
+      return;
+    }
+
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'home-watchlist-row';
+      container.className = 'content-row';
+    }
+
+    // Position right after community-row or continue-watching-row
+    const commRow = document.getElementById('community-row');
+    const contRow = document.getElementById('continue-watching-row');
+    const anchor = commRow || contRow;
+
+    if (anchor && anchor.nextSibling !== container) {
+      rowsWrapper.insertBefore(container, anchor.nextSibling);
+    } else if (!anchor && rowsWrapper.firstChild !== container) {
+      rowsWrapper.insertBefore(container, rowsWrapper.firstChild);
+    }
+
+    container.innerHTML = `
+      <div class="row-header">
+        <h2 class="row-title">
+          <span>📑 La Mia Lista</span>
+          <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">${list.length} ${list.length === 1 ? 'titolo' : 'titoli'}</span>
+        </h2>
+      </div>
+      <div class="row-carousel" id="carousel-home-watchlist">
+        ${list.map(item => this.getMediaCardHtml(item)).join('')}
+      </div>
+    `;
+
+    this.setupCarouselArrows(container);
+
+    container.querySelectorAll('.media-card').forEach(card => {
+      const rawId = card.getAttribute('data-id');
+      const item = list.find(i => String(i.id) === String(rawId));
+      if (item) {
+        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+        const playBtn = card.querySelector('.card-play-indicator');
+        if (playBtn) {
+          playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!isSaturn && !CatalogService.isItemAvailable(item)) {
+              this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
+              return;
+            }
+            this.lastFocusedElement = card;
+            PlayerController.play(item);
+          });
+        }
+        card.addEventListener('click', () => {
+          this.lastFocusedElement = card;
+          this.openDetailsModal(item);
+        });
+      }
+    });
+  }
+
+  // =========================================================================
+  // Community Users Catalog & Profiles
+  // =========================================================================
+  async loadUsersSection() {
+    const grid = document.getElementById('users-grid');
+    if (!grid) return;
+
+    grid.innerHTML = '<div class="feedback-loading">Caricamento utenti community...</div>';
+
+    try {
+      const activeUser = SupabaseService.getActiveUser();
+      const currentUserId = activeUser ? String(activeUser.id) : null;
+
+      const [profiles, watchRows, commentsRows] = await Promise.all([
+        SupabaseService.getProfiles(),
+        SupabaseService.restRequest('watch_progress?community_hidden=eq.false&select=user_id,media_id,is_completed,progress,is_last_episode,source,media_type,season').catch(() => []),
+        SupabaseService.restRequest('comments?select=user_id,comment_type').catch(() => [])
+      ]);
+
+      if (!Array.isArray(profiles) || profiles.length === 0) {
+        grid.innerHTML = '<div class="empty-state">Nessun utente registrato.</div>';
+        return;
+      }
+
+      const statsMap = new Map();
+      profiles.forEach(p => {
+        statsMap.set(String(p.id), { watched: new Set(), recs: 0, comments: 0 });
+      });
+
+      if (Array.isArray(watchRows)) {
+        for (const r of watchRows) {
+          const uId = String(r.user_id);
+          const userStat = statsMap.get(uId);
+          if (!userStat) continue;
+
+          const isSaturn = (r.source === 'animesaturn' || String(r.media_id).startsWith('saturn_'));
+          const isTv = !isSaturn && (r.media_type === 'tv' || (r.media_type !== 'movie' && Number(r.season) > 0));
+          const isSeries = isTv || isSaturn || r.media_type === 'anime';
+          const prog = Number(r.progress || 0);
+
+          const isCompleted = r.is_completed === true || (!isSeries && prog >= 95) || (isSeries && r.is_last_episode === true && prog >= 95);
+          if (isCompleted) {
+            userStat.watched.add(String(r.media_id));
+          }
+        }
+      }
+
+      if (Array.isArray(commentsRows)) {
+        for (const c of commentsRows) {
+          const uId = String(c.user_id);
+          const userStat = statsMap.get(uId);
+          if (!userStat) continue;
+          if (c.comment_type === 'recommendation') {
+            userStat.recs++;
+          } else {
+            userStat.comments++;
+          }
+        }
+      }
+
+      grid.innerHTML = profiles.map(p => {
+        const uId = String(p.id);
+        const isMe = currentUserId === uId;
+        const stat = statsMap.get(uId) || { watched: new Set(), recs: 0, comments: 0 };
+        const watchedCount = stat.watched.size;
+        const recCount = stat.recs;
+        const commentCount = stat.comments;
+
+        const avatarHtml = p.avatar_url
+          ? `<img src="${p.avatar_url}" class="profile-avatar-img" alt="${this.escapeHtml(p.username)}" onerror="this.outerHTML='${this.escapeHtml(p.avatar_emoji || '🍿')}'" />`
+          : this.escapeHtml(p.avatar_emoji || '🍿');
+
+        const bioText = p.bio ? this.escapeHtml(p.bio) : '<span style="color: var(--text-dim); font-style: italic;">Nessuna biografia inserita</span>';
+
+        return `
+          <div class="user-card navigable focus-compact ${isMe ? 'is-current-user' : ''}" tabindex="0" data-user-id="${uId}">
+            <div class="user-card-top">
+              <div class="user-card-avatar">${avatarHtml}</div>
+              <div class="user-card-identity">
+                <div class="user-card-name-row">
+                  <h3 class="user-card-username">${this.escapeHtml(p.username)}</h3>
+                  ${isMe ? '<span class="badge-user-you">Tu</span>' : ''}
+                </div>
+                <div class="user-card-bio">${bioText}</div>
+              </div>
+            </div>
+            <div class="user-card-stats">
+              <div class="user-stat-badge">
+                <span class="user-stat-val">🎬 ${watchedCount}</span>
+                <span class="user-stat-lbl">visti</span>
+              </div>
+              <div class="user-stat-badge">
+                <span class="user-stat-val">★ ${recCount}</span>
+                <span class="user-stat-lbl">consigli</span>
+              </div>
+              <div class="user-stat-badge">
+                <span class="user-stat-val">💬 ${commentCount}</span>
+                <span class="user-stat-lbl">commenti</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      grid.querySelectorAll('.user-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const uId = card.getAttribute('data-user-id');
+          if (uId) {
+            this.openUserProfile(uId);
+          }
+        });
+      });
+    } catch (e) {
+      console.error('[Roxy] Error loading users section:', e);
+      grid.innerHTML = '<div class="empty-state">Errore nel caricamento dei profili utente.</div>';
+    }
+  }
+
+  async openUserProfile(userId) {
+    if (!userId) return;
+
+    if (this.currentSection && this.currentSection !== 'user-profile') {
+      this.previousSectionBeforeProfile = this.currentSection;
+    }
+
+    this.switchSection('user-profile');
+
+    const usernameEl = document.getElementById('profile-page-username');
+    const avatarEl = document.getElementById('profile-page-avatar');
+    const badgeYouEl = document.getElementById('profile-page-badge-you');
+    const bioEl = document.getElementById('profile-page-bio');
+    const statWatchedEl = document.getElementById('profile-stat-watched');
+    const statRecsEl = document.getElementById('profile-stat-recommended');
+    const statCommentsEl = document.getElementById('profile-stat-comments');
+    const tabWatchedCount = document.getElementById('tab-count-watched');
+    const tabRecsCount = document.getElementById('tab-count-recommended');
+    const tabCommentsCount = document.getElementById('tab-count-comments');
+    const ownerActions = document.getElementById('profile-owner-actions');
+    const editPanel = document.getElementById('profile-edit-panel');
+
+    if (editPanel) editPanel.style.display = 'none';
+    if (usernameEl) usernameEl.textContent = 'Caricamento profilo...';
+
+    const data = await SupabaseService.getUserProfileData(userId);
+    if (!data || !data.profile) {
+      this.showToast('Impossibile caricare il profilo utente.');
+      this.switchSection('users');
+      return;
+    }
+
+    this.viewedProfileData = data;
+    const { profile, isOwner, watched, recommendations, comments } = data;
+
+    if (usernameEl) usernameEl.textContent = profile.username;
+    if (avatarEl) {
+      avatarEl.innerHTML = profile.avatar_url
+        ? `<img src="${profile.avatar_url}" class="profile-avatar-img" alt="${this.escapeHtml(profile.username)}" onerror="this.outerHTML='${this.escapeHtml(profile.avatar_emoji || '🍿')}'" />`
+        : this.escapeHtml(profile.avatar_emoji || '🍿');
+    }
+    if (badgeYouEl) badgeYouEl.style.display = isOwner ? 'inline-block' : 'none';
+    if (ownerActions) ownerActions.style.display = isOwner ? 'block' : 'none';
+
+    if (bioEl) {
+      bioEl.innerHTML = profile.bio
+        ? this.escapeHtml(profile.bio)
+        : `<span style="color: var(--text-dim); font-style: italic;">${isOwner ? 'Nessuna biografia inserita. Clicca su "Modifica Info" per aggiungerne una!' : 'Nessuna biografia inserita.'}</span>`;
+    }
+
+    if (statWatchedEl) statWatchedEl.textContent = watched.length;
+    if (statRecsEl) statRecsEl.textContent = recommendations.length;
+    if (statCommentsEl) statCommentsEl.textContent = comments.length;
+
+    if (tabWatchedCount) tabWatchedCount.textContent = watched.length;
+    if (tabRecsCount) tabRecsCount.textContent = recommendations.length;
+    if (tabCommentsCount) tabCommentsCount.textContent = comments.length;
+
+    // Render Watched Titles Grid
+    const watchedGrid = document.getElementById('profile-watched-grid');
+    if (watchedGrid) {
+      if (watched.length === 0) {
+        watchedGrid.innerHTML = `<div class="empty-state" style="padding: 40px 0;"><div style="font-size: 2.5rem; margin-bottom: 8px;">🎬</div>Nessun titolo completato ${isOwner ? 'nella tua cronologia' : 'da mostrare'}.</div>`;
+      } else {
+        watchedGrid.innerHTML = watched.map(item => {
+          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+          const posterUrl = item.poster_path || item.backdrop_path || '';
+          const imgUrl = posterUrl.startsWith('http') ? posterUrl : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w342') : 'assets/icon.png');
+          const cleanTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
+
+          return `
+            <div class="media-card navigable focus-compact" tabindex="0" data-id="${item.id}" data-type="${item.media_type}" data-source="${item.source || 'tmdb'}" data-slug="${item.slug || ''}">
+              <div class="card-poster-wrap">
+                <img src="${imgUrl}" alt="${this.escapeHtml(cleanTitle)}" class="card-poster" loading="lazy" />
+                <div class="card-play-indicator">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
+                </div>
+                ${item.community_hidden ? '<div class="badge-hidden-private" title="Nascosto alla community">🔒 Nascosto</div>' : ''}
+              </div>
+              <div class="card-meta">
+                <div class="card-title">${isSaturn ? '🪐 ' : ''}${this.escapeHtml(cleanTitle)}</div>
+                <div class="card-sub">${isSaturn ? 'Anime' : (item.media_type === 'tv' ? 'Serie TV' : 'Film')}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        watchedGrid.querySelectorAll('.media-card').forEach(card => {
+          const rawId = card.getAttribute('data-id');
+          const item = watched.find(i => String(i.id) === String(rawId));
+          if (item) {
+            card.addEventListener('click', () => {
+              this.lastFocusedElement = card;
+              this.openDetailsModal(item);
+            });
+          }
+        });
+      }
+    }
+
+    // Render Recommendations List
+    const recsList = document.getElementById('profile-recommended-list');
+    if (recsList) {
+      if (recommendations.length === 0) {
+        recsList.innerHTML = `<div class="empty-state" style="padding: 40px 0;"><div style="font-size: 2.5rem; margin-bottom: 8px;">★</div>Nessun titolo consigliato.</div>`;
+      } else {
+        recsList.innerHTML = recommendations.map(item => {
+          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+          const posterUrl = item.poster_path || item.backdrop_path || '';
+          const imgUrl = posterUrl.startsWith('http') ? posterUrl : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w185') : 'assets/icon.png');
+          const cleanTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
+          const timeAgo = this.formatTimeAgo(new Date(item.created_at).getTime());
+
+          return `
+            <div class="profile-rec-card navigable focus-compact" tabindex="0" data-media-id="${item.media_id}" data-source="${item.source || 'tmdb'}" data-media-type="${item.media_type || 'movie'}" data-slug="${item.slug || ''}">
+              <img src="${imgUrl}" alt="${this.escapeHtml(cleanTitle)}" class="profile-item-thumb" loading="lazy" />
+              <div class="profile-item-content">
+                <div class="profile-item-header">
+                  <span class="profile-item-title">${isSaturn ? '🪐 ' : ''}${this.escapeHtml(cleanTitle)}</span>
+                  <span class="profile-item-time">${timeAgo}</span>
+                </div>
+                <div class="badge-rec-star" style="display: inline-flex; margin-bottom: 6px;">★ Consigliato assolutamente</div>
+                ${item.comment_text ? `<div class="profile-item-text">"${this.escapeHtml(item.comment_text)}"</div>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        recsList.querySelectorAll('.profile-rec-card').forEach(card => {
+          card.addEventListener('click', () => {
+            const mId = card.getAttribute('data-media-id');
+            const source = card.getAttribute('data-source');
+            const mediaType = card.getAttribute('data-media-type');
+            const slug = card.getAttribute('data-slug');
+            this.lastFocusedElement = card;
+            this.openDetailsModal({ id: mId, source, media_type: mediaType, slug });
+          });
+        });
+      }
+    }
+
+    // Render Comments List
+    const commList = document.getElementById('profile-comments-list');
+    if (commList) {
+      if (comments.length === 0) {
+        commList.innerHTML = `<div class="empty-state" style="padding: 40px 0;"><div style="font-size: 2.5rem; margin-bottom: 8px;">💬</div>Nessun commento scritto.</div>`;
+      } else {
+        commList.innerHTML = comments.map(item => {
+          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+          const posterUrl = item.poster_path || item.backdrop_path || '';
+          const imgUrl = posterUrl.startsWith('http') ? posterUrl : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w185') : 'assets/icon.png');
+          const cleanTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
+          const timeAgo = this.formatTimeAgo(new Date(item.created_at).getTime());
+
+          return `
+            <div class="profile-comment-card navigable focus-compact" tabindex="0" data-media-id="${item.media_id}" data-source="${item.source || 'tmdb'}" data-media-type="${item.media_type || 'movie'}" data-slug="${item.slug || ''}">
+              <img src="${imgUrl}" alt="${this.escapeHtml(cleanTitle)}" class="profile-item-thumb" loading="lazy" />
+              <div class="profile-item-content">
+                <div class="profile-item-header">
+                  <span class="profile-item-title">${isSaturn ? '🪐 ' : ''}${this.escapeHtml(cleanTitle)}</span>
+                  <span class="profile-item-time">${timeAgo}</span>
+                </div>
+                <div class="profile-item-text">"${this.escapeHtml(item.comment_text)}"</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        commList.querySelectorAll('.profile-comment-card').forEach(card => {
+          card.addEventListener('click', () => {
+            const mId = card.getAttribute('data-media-id');
+            const source = card.getAttribute('data-source');
+            const mediaType = card.getAttribute('data-media-type');
+            const slug = card.getAttribute('data-slug');
+            this.lastFocusedElement = card;
+            this.openDetailsModal({ id: mId, source, media_type: mediaType, slug });
+          });
+        });
+      }
+    }
+
+    // Populate Edit Form if owner
+    if (isOwner) {
+      const editName = document.getElementById('profile-edit-name');
+      const editBio = document.getElementById('profile-edit-bio');
+      const bioCounter = document.getElementById('profile-bio-char-count');
+      const editPin = document.getElementById('profile-edit-pin');
+
+      if (editName) editName.value = profile.username || '';
+      if (editBio) {
+        editBio.value = profile.bio || '';
+        if (bioCounter) bioCounter.textContent = `${(profile.bio || '').length}/250`;
+      }
+      if (editPin) editPin.value = '';
+
+      this.profileEditAvatarType = profile.avatar_url ? 'photo' : 'emoji';
+      this.profileEditSelectedEmoji = profile.avatar_emoji || '🍿';
+      this.profileEditPhotoData = profile.avatar_url || null;
+
+      const tabEmoji = document.getElementById('profile-edit-tab-emoji');
+      const tabPhoto = document.getElementById('profile-edit-tab-photo');
+      const contentEmoji = document.getElementById('profile-edit-content-emoji');
+      const contentPhoto = document.getElementById('profile-edit-content-photo');
+      const photoPreview = document.getElementById('profile-edit-photo-preview');
+      const btnRemovePhoto = document.getElementById('btn-profile-remove-photo');
+
+      if (this.profileEditAvatarType === 'photo' && profile.avatar_url) {
+        if (tabEmoji) tabEmoji.classList.remove('active');
+        if (tabPhoto) tabPhoto.classList.add('active');
+        if (contentEmoji) contentEmoji.style.display = 'none';
+        if (contentPhoto) contentPhoto.style.display = 'block';
+        if (photoPreview) photoPreview.innerHTML = `<img src="${profile.avatar_url}" class="photo-preview-img" alt="Preview" />`;
+        if (btnRemovePhoto) btnRemovePhoto.style.display = 'inline-block';
+      } else {
+        if (tabEmoji) tabEmoji.classList.add('active');
+        if (tabPhoto) tabPhoto.classList.remove('active');
+        if (contentEmoji) contentEmoji.style.display = 'block';
+        if (contentPhoto) contentPhoto.style.display = 'none';
+        if (btnRemovePhoto) btnRemovePhoto.style.display = 'none';
+      }
+
+      document.querySelectorAll('#profile-edit-emoji-picker .settings-emoji-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-emoji') === this.profileEditSelectedEmoji);
+      });
+    }
+  }
+
+  bindUserProfileEvents() {
+    const btnBack = document.getElementById('btn-back-to-users');
+    if (btnBack) {
+      btnBack.addEventListener('click', () => {
+        const dest = this.previousSectionBeforeProfile || 'users';
+        this.switchSection(dest);
+      });
+    }
+
+    const profileTabs = document.querySelectorAll('.profile-tab-btn');
+    profileTabs.forEach(btn => {
+      btn.addEventListener('click', () => {
+        profileTabs.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.getAttribute('data-tab');
+
+        document.querySelectorAll('.profile-tab-panel').forEach(panel => {
+          panel.style.display = 'none';
+          panel.classList.remove('active');
+        });
+
+        const targetPanel = document.getElementById(`profile-tab-${tab}`);
+        if (targetPanel) {
+          targetPanel.style.display = 'block';
+          targetPanel.classList.add('active');
+        }
+      });
+    });
+
+    const btnToggleEdit = document.getElementById('btn-profile-toggle-edit');
+    const btnCloseEdit = document.getElementById('btn-profile-close-edit');
+    const editPanel = document.getElementById('profile-edit-panel');
+
+    if (btnToggleEdit && editPanel) {
+      btnToggleEdit.addEventListener('click', () => {
+        editPanel.style.display = editPanel.style.display === 'none' ? 'block' : 'none';
+        if (editPanel.style.display === 'block') {
+          editPanel.scrollIntoView({ behavior: 'smooth' });
+          const firstInput = editPanel.querySelector('input');
+          if (firstInput) firstInput.focus();
+        }
+      });
+    }
+
+    if (btnCloseEdit && editPanel) {
+      btnCloseEdit.addEventListener('click', () => {
+        editPanel.style.display = 'none';
+      });
+    }
+
+    const bioTextarea = document.getElementById('profile-edit-bio');
+    const bioCounter = document.getElementById('profile-bio-char-count');
+    if (bioTextarea && bioCounter) {
+      bioTextarea.addEventListener('input', () => {
+        bioCounter.textContent = `${bioTextarea.value.length}/250`;
+      });
+    }
+
+    const tabEmoji = document.getElementById('profile-edit-tab-emoji');
+    const tabPhoto = document.getElementById('profile-edit-tab-photo');
+    const contentEmoji = document.getElementById('profile-edit-content-emoji');
+    const contentPhoto = document.getElementById('profile-edit-content-photo');
+
+    if (tabEmoji && tabPhoto) {
+      tabEmoji.addEventListener('click', () => {
+        tabEmoji.classList.add('active');
+        tabPhoto.classList.remove('active');
+        if (contentEmoji) contentEmoji.style.display = 'block';
+        if (contentPhoto) contentPhoto.style.display = 'none';
+        this.profileEditAvatarType = 'emoji';
+      });
+
+      tabPhoto.addEventListener('click', () => {
+        tabPhoto.classList.add('active');
+        tabEmoji.classList.remove('active');
+        if (contentPhoto) contentPhoto.style.display = 'block';
+        if (contentEmoji) contentEmoji.style.display = 'none';
+        this.profileEditAvatarType = 'photo';
+      });
+    }
+
+    document.querySelectorAll('#profile-edit-emoji-picker .settings-emoji-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#profile-edit-emoji-picker .settings-emoji-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.profileEditSelectedEmoji = btn.getAttribute('data-emoji') || '🍿';
+      });
+    });
+
+    const fileInput = document.getElementById('profile-edit-photo-input');
+    const btnChoosePhoto = document.getElementById('btn-profile-choose-photo');
+    const btnRemovePhoto = document.getElementById('btn-profile-remove-photo');
+    const photoPreview = document.getElementById('profile-edit-photo-preview');
+
+    if (btnChoosePhoto && fileInput) {
+      btnChoosePhoto.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          const compressed = await this.compressAvatarImage(file);
+          this.profileEditPhotoData = compressed;
+          if (photoPreview) {
+            photoPreview.innerHTML = `<img src="${compressed}" class="photo-preview-img" alt="Preview" />`;
+          }
+          if (btnRemovePhoto) btnRemovePhoto.style.display = 'inline-block';
+        } catch (err) {
+          this.showToast('Errore nel caricamento della foto.');
+        }
+      });
+    }
+
+    if (btnRemovePhoto) {
+      btnRemovePhoto.addEventListener('click', () => {
+        this.profileEditPhotoData = null;
+        if (photoPreview) photoPreview.innerHTML = '<span class="photo-placeholder-icon">📷</span>';
+        btnRemovePhoto.style.display = 'none';
+        if (fileInput) fileInput.value = '';
+      });
+    }
+
+    const btnSwitchUser = document.getElementById('btn-profile-switch-user');
+    if (btnSwitchUser) {
+      btnSwitchUser.addEventListener('click', () => {
+        if (editPanel) editPanel.style.display = 'none';
+        this.showProfileSelectorModal();
+      });
+    }
+
+    const btnDeleteUser = document.getElementById('btn-profile-delete-user');
+    if (btnDeleteUser) {
+      btnDeleteUser.addEventListener('click', async () => {
+        const user = SupabaseService.getActiveUser();
+        if (!user) return;
+        if (confirm(`Sei sicuro di voler eliminare definitivamente il profilo "${user.username}"? Tutti i tuoi progressi verranno cancellati.`)) {
+          try {
+            await SupabaseService.deleteProfile(user.id);
+            this.showToast('Profilo eliminato con successo.');
+            if (editPanel) editPanel.style.display = 'none';
+            this.showProfileSelectorModal();
+          } catch (err) {
+            this.showToast('Errore durante l\'eliminazione del profilo.');
+          }
+        }
+      });
+    }
+
+    const form = document.getElementById('profile-edit-form');
+    const errorMsg = document.getElementById('profile-edit-error');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const user = SupabaseService.getActiveUser();
+        if (!user) return;
+
+        const newName = document.getElementById('profile-edit-name')?.value?.trim();
+        const newBio = document.getElementById('profile-edit-bio')?.value?.trim() || '';
+        const newPin = document.getElementById('profile-edit-pin')?.value?.trim();
+
+        if (errorMsg) {
+          errorMsg.style.display = 'none';
+          errorMsg.textContent = '';
+        }
+
+        if (newPin && !/^\d{4}$/.test(newPin)) {
+          if (errorMsg) {
+            errorMsg.textContent = 'Il PIN deve essere esattamente di 4 cifre numeriche.';
+            errorMsg.style.display = 'block';
+          }
+          return;
+        }
+
+        const updates = {
+          username: newName,
+          bio: newBio
+        };
+        if (newPin) updates.pin = newPin;
+
+        if (this.profileEditAvatarType === 'photo' && this.profileEditPhotoData) {
+          if (this.profileEditPhotoData.startsWith('data:')) {
+            try {
+              const uploadedUrl = await SupabaseService.uploadAvatarPhoto(user.id, this.profileEditPhotoData);
+              updates.avatar_url = uploadedUrl;
+            } catch (err) {
+              if (errorMsg) {
+                errorMsg.textContent = 'Caricamento foto fallito, riprova.';
+                errorMsg.style.display = 'block';
+              }
+              return;
+            }
+          } else {
+            updates.avatar_url = this.profileEditPhotoData;
+          }
+        } else {
+          updates.avatar_url = null;
+          updates.avatar_emoji = this.profileEditSelectedEmoji || '🍿';
+        }
+
+        try {
+          const updatedUser = await SupabaseService.updateProfile(user.id, updates);
+          this.showToast('Profilo aggiornato con successo!');
+          if (editPanel) editPanel.style.display = 'none';
+          this.updateHeaderProfileBadge(updatedUser);
+          this.openUserProfile(user.id);
+        } catch (err) {
+          if (errorMsg) {
+            errorMsg.textContent = err.message || 'Errore durante l\'aggiornamento.';
+            errorMsg.style.display = 'block';
+          }
+        }
+      });
+    }
   }
 }
 
