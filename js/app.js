@@ -69,6 +69,17 @@ class RoxyApp {
       });
     });
 
+    // Mobile bottom navigation items
+    const mobileNavItems = document.querySelectorAll('.mobile-nav-item');
+    mobileNavItems.forEach(item => {
+      item.addEventListener('click', (e) => {
+        const targetSection = item.getAttribute('data-section');
+        if (targetSection) {
+          this.switchSection(targetSection);
+        }
+      });
+    });
+
     const searchTrigger = document.getElementById('nav-search-btn');
     if (searchTrigger) {
       searchTrigger.addEventListener('click', () => this.switchSection('search'));
@@ -91,8 +102,17 @@ class RoxyApp {
   switchSection(sectionName) {
     this.currentSection = sectionName;
 
-    // Update active nav button
+    // Update active desktop nav button
     document.querySelectorAll('.nav-item').forEach(btn => {
+      if (btn.getAttribute('data-section') === sectionName) {
+        btn.classList.add('nav-active');
+      } else {
+        btn.classList.remove('nav-active');
+      }
+    });
+
+    // Update active mobile bottom nav button
+    document.querySelectorAll('.mobile-nav-item').forEach(btn => {
       if (btn.getAttribute('data-section') === sectionName) {
         btn.classList.add('nav-active');
       } else {
