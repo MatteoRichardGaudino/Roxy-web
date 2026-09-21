@@ -29,6 +29,7 @@
           <button class="nav-item navigable focus-compact" data-section="movies" tabindex="0">Film</button>
           <button class="nav-item navigable focus-compact" data-section="tv" tabindex="0">Serie TV</button>
           <button class="nav-item navigable focus-compact" data-section="watchlist" tabindex="0">La Mia Lista</button>
+          <button class="nav-item navigable focus-compact" data-section="community" tabindex="0">Community</button>
           <button class="nav-item navigable focus-compact" data-section="users" tabindex="0">Utenti</button>
           <button class="nav-item navigable focus-compact" data-section="feedback" tabindex="0">Feedback</button>
         </nav>
@@ -61,31 +62,17 @@
         </svg>
         <span>Home</span>
       </button>
-      <button class="mobile-nav-item" data-section="movies">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
-          <line x1="7" y1="2" x2="7" y2="22"></line>
-          <line x1="17" y1="2" x2="17" y2="22"></line>
-          <line x1="2" y1="12" x2="22" y2="12"></line>
-          <line x1="2" y1="7" x2="7" y2="7"></line>
-          <line x1="2" y1="17" x2="7" y2="17"></line>
-          <line x1="17" y1="17" x2="22" y2="17"></line>
-          <line x1="17" y1="7" x2="22" y2="7"></line>
-        </svg>
-        <span>Film</span>
-      </button>
-      <button class="mobile-nav-item" data-section="tv">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect>
-          <polyline points="17 2 12 7 7 2"></polyline>
-        </svg>
-        <span>Serie TV</span>
-      </button>
       <button class="mobile-nav-item" data-section="watchlist">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
         </svg>
         <span>Mia Lista</span>
+      </button>
+      <button class="mobile-nav-item" data-section="community">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+        </svg>
+        <span>Community</span>
       </button>
       <button class="mobile-nav-item" data-section="users">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -101,13 +88,6 @@
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
         </svg>
         <span>Feedback</span>
-      </button>
-      <button class="mobile-nav-item" data-section="search">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-        </svg>
-        <span>Cerca</span>
       </button>
     </nav>
 
@@ -158,6 +138,26 @@
 
           <!-- Carousel Indicator Dots -->
           <div class="hero-dots" id="hero-dots"></div>
+        </div>
+
+        <!-- Mobile & TV Quick Category Pills -->
+        <div class="home-category-bar" id="home-category-bar">
+          <button class="category-pill-btn navigable focus-compact" data-action="goto-movies" tabindex="0">
+            <span class="pill-icon">🎬</span>
+            <span class="pill-label">Film</span>
+          </button>
+          <button class="category-pill-btn navigable focus-compact" data-action="goto-tv" tabindex="0">
+            <span class="pill-icon">📺</span>
+            <span class="pill-label">Serie TV</span>
+          </button>
+          <button class="category-pill-btn navigable focus-compact" data-action="goto-anime" tabindex="0">
+            <span class="pill-icon">🪐</span>
+            <span class="pill-label">Anime</span>
+          </button>
+          <button class="category-pill-btn navigable focus-compact" data-action="goto-community" tabindex="0">
+            <span class="pill-icon">👥</span>
+            <span class="pill-label">Community</span>
+          </button>
         </div>
 
         <!-- Dynamic Content Rows Container -->
@@ -245,32 +245,36 @@
                 </svg>
                 <span>Changelog & Novità</span>
               </h3>
-              <span class="changelog-badge">v1.2.0</span>
+              <span class="changelog-badge">v1.0.2</span>
             </div>
             <div class="changelog-list">
               <div class="changelog-item">
                 <div class="changelog-tag tag-new">Novità</div>
-                <div class="changelog-desc"><strong>Nuova Scheda Feedback:</strong> invia bug report, richiedi feature e vota le segnalazioni degli altri utenti.</div>
+                <div class="changelog-desc"><strong>Nuova Pagina Community:</strong> bacheca sociale dedicata con eventi live, creazione di post liberi e supporto completo a sondaggi a scelta singola o multipla.</div>
               </div>
               <div class="changelog-item">
                 <div class="changelog-tag tag-new">Novità</div>
-                <div class="changelog-desc"><strong>Pulsanti "Segna come finito" e "Segna come Da guardare":</strong> gestisci direttamente lo stato di visione nella scheda info.</div>
+                <div class="changelog-desc"><strong>Fissa Post in Alto:</strong> possibilità per tutti gli utenti di fissare o staccare in alto qualsiasi post o sondaggio (📌 Fissato).</div>
               </div>
               <div class="changelog-item">
                 <div class="changelog-tag tag-new">Novità</div>
-                <div class="changelog-desc"><strong>Frecce di scorrimento orizzontale:</strong> sfoglia le file di contenuti comodamente con il cursore del mouse.</div>
+                <div class="changelog-desc"><strong>Notifiche Home & Aggiornamento Asincrono:</strong> card personalizzate per post e sondaggi nella riga community della home con refresh automatico e non bloccante.</div>
+              </div>
+              <div class="changelog-item">
+                <div class="changelog-tag tag-new">Novità</div>
+                <div class="changelog-desc"><strong>Controllo Volume Player Anime:</strong> aggiunto slider del volume dedicato nel lettore AnimeSaturn.</div>
               </div>
               <div class="changelog-item">
                 <div class="changelog-tag tag-fix">Fix</div>
-                <div class="changelog-desc"><strong>Salvataggio e ripresa episodi:</strong> risolto il problema della ripartenza da episodio 1 dopo il ricaricamento della pagina.</div>
+                <div class="changelog-desc"><strong>Mobile One-Click:</strong> da smartphone e tablet i titoli aprono direttamente la scheda info al primo tocco senza richiedere il doppio clic.</div>
               </div>
               <div class="changelog-item">
                 <div class="changelog-tag tag-fix">Fix</div>
-                <div class="changelog-desc"><strong>Player Popup Episodi:</strong> risolto il ciclo del pulsante "Prossimo Episodio" durante la riproduzione.</div>
+                <div class="changelog-desc"><strong>Riconoscimento SUB/DUB:</strong> corretta l'assegnazione dei badge lingua e doppiaggio per gli anime nella propria lista.</div>
               </div>
               <div class="changelog-item">
                 <div class="changelog-tag tag-fix">Fix</div>
-                <div class="changelog-desc"><strong>Stato "Ha visto" serie e anime:</strong> completamento assegnato solo dopo la visione dell'ultimo episodio.</div>
+                <div class="changelog-desc"><strong>Allineamento & Layout Profilo:</strong> corretto l'aspect-ratio delle locandine viste nel profilo utente e ripristinato lo stile della casella biografia.</div>
               </div>
             </div>
           </div>
@@ -301,7 +305,7 @@
               <div class="feedback-form-actions">
                 <span id="feedback-char-count" class="feedback-char-count">0/600</span>
                 <button type="submit" id="btn-submit-feedback" class="btn-primary-play navigable focus-compact">
-                  Invia Segnalazione
+                  Invia
                 </button>
               </div>
             </form>
@@ -324,6 +328,142 @@
             <div id="feedback-list-container" class="feedback-list-container">
               <div class="feedback-loading">Caricamento feedback...</div>
             </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           Community Hub View
+           ==================================================================== -->
+      <section id="view-community" class="view-section">
+        <div class="community-page-container">
+          
+          <!-- Page Header -->
+          <div class="community-page-header">
+            <div class="community-header-info">
+              <h1 class="page-title">👥 Community</h1>
+              <p class="page-subtitle">Discuti, crea sondaggi, condividi pareri e scopri le novità della community in tempo reale.</p>
+            </div>
+            <div class="community-live-indicator">
+              <span class="pulse-dot"></span>
+              <span class="live-text">Live Realtime</span>
+            </div>
+          </div>
+
+          <!-- Creator Box: Free Post / Poll -->
+          <div class="community-create-card" id="community-create-card">
+            <div class="create-type-switcher">
+              <button type="button" class="create-tab-btn active navigable focus-compact" data-tab="post" id="tab-btn-post">
+                <span class="tab-icon">💬</span>
+                <span>Post Libero</span>
+              </button>
+              <button type="button" class="create-tab-btn navigable focus-compact" data-tab="poll" id="tab-btn-poll">
+                <span class="tab-icon">📊</span>
+                <span>Crea Sondaggio</span>
+              </button>
+            </div>
+
+            <!-- Free Post Form -->
+            <form id="community-post-form" class="community-create-form active">
+              <div class="form-group" style="margin-bottom: 12px;">
+                <textarea id="community-post-text" class="form-textarea navigable focus-compact" rows="3" placeholder="Scrivi un pensiero, commento o messaggio per la community..." maxlength="1000" required></textarea>
+              </div>
+              <div class="create-card-footer">
+                <span id="community-post-char-count" class="char-counter">0/1000</span>
+                <button type="submit" id="btn-submit-post" class="btn-primary-play navigable focus-compact">
+                  <span>Pubblica Post</span>
+                </button>
+              </div>
+            </form>
+
+            <!-- Poll Form -->
+            <form id="community-poll-form" class="community-create-form" style="display: none;">
+              <div class="form-group" style="margin-bottom: 14px;">
+                <label class="form-label" for="poll-question-input">Domanda del sondaggio</label>
+                <input type="text" id="poll-question-input" class="form-input navigable focus-compact" placeholder="Es. Qual è il miglior film dell'anno? / Preferite DUB o SUB?" maxlength="200" required />
+              </div>
+
+              <!-- Poll Type Toggle -->
+              <div class="poll-type-selector">
+                <span class="poll-type-title">Tipo di risposta:</span>
+                <div class="poll-type-options">
+                  <label class="poll-radio-label navigable focus-compact" tabindex="0">
+                    <input type="radio" name="poll-vote-type" value="single" checked />
+                    <span class="radio-custom"></span>
+                    <span class="radio-text">
+                      <strong>Scelta singola</strong>
+                      <small>(Si vota solo una risposta)</small>
+                    </span>
+                  </label>
+                  <label class="poll-radio-label navigable focus-compact" tabindex="0">
+                    <input type="radio" name="poll-vote-type" value="multiple" />
+                    <span class="radio-custom"></span>
+                    <span class="radio-text">
+                      <strong>Scelta multipla</strong>
+                      <small>(Si possono votare più risposte)</small>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Dynamic Poll Options List -->
+              <div class="poll-options-group">
+                <label class="form-label">Opzioni di risposta</label>
+                <div id="poll-options-list" class="poll-options-list">
+                  <div class="poll-option-row">
+                    <span class="option-idx-bullet">1</span>
+                    <input type="text" class="form-input poll-opt-input navigable focus-compact" placeholder="Opzione 1" maxlength="100" required />
+                  </div>
+                  <div class="poll-option-row">
+                    <span class="option-idx-bullet">2</span>
+                    <input type="text" class="form-input poll-opt-input navigable focus-compact" placeholder="Opzione 2" maxlength="100" required />
+                  </div>
+                </div>
+                <button type="button" id="btn-add-poll-option" class="btn-add-option navigable focus-compact">
+                  <span>+ Aggiungi opzione</span>
+                </button>
+              </div>
+
+              <div class="create-card-footer">
+                <span class="poll-notice">Chiunque potrà vedere chi ha votato ciascuna opzione</span>
+                <button type="submit" id="btn-submit-poll" class="btn-primary-play navigable focus-compact">
+                  <span>Crea Sondaggio</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Community Feed Filter Tabs -->
+          <div class="community-filter-bar">
+            <div class="community-filter-tabs">
+              <button class="comm-filter-btn active navigable focus-compact" data-filter="all">
+                <span>🌟 Tutti gli Eventi</span>
+                <span id="comm-filter-count-all" class="filter-count">0</span>
+              </button>
+              <button class="comm-filter-btn navigable focus-compact" data-filter="posts">
+                <span>💬 Post & Sondaggi</span>
+              </button>
+              <button class="comm-filter-btn navigable focus-compact" data-filter="reviews">
+                <span>🎬 Titoli & Recensioni</span>
+              </button>
+              <button class="comm-filter-btn navigable focus-compact" data-filter="watching">
+                <span>🍿 Visioni</span>
+              </button>
+            </div>
+            <button id="btn-refresh-community" class="btn-refresh-pill navigable focus-compact" title="Aggiorna feed">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <polyline points="1 20 1 14 7 14"></polyline>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+              <span>Aggiorna</span>
+            </button>
+          </div>
+
+          <!-- Community Feed Items Container -->
+          <div id="community-feed-container" class="community-feed-container">
+            <div class="feedback-loading">Caricamento eventi community...</div>
           </div>
 
         </div>
@@ -377,6 +517,10 @@
                     <span class="stat-label">Visti</span>
                   </div>
                   <div class="profile-stat-item">
+                    <span class="stat-number" id="profile-stat-watchlist">0</span>
+                    <span class="stat-label">In Lista</span>
+                  </div>
+                  <div class="profile-stat-item">
                     <span class="stat-number" id="profile-stat-recommended">0</span>
                     <span class="stat-label">Consigliati</span>
                   </div>
@@ -392,6 +536,9 @@
             <div id="profile-owner-actions" class="profile-owner-actions" style="display: none;">
               <button id="btn-profile-toggle-edit" class="btn-primary-play navigable focus-compact" tabindex="0">
                 ✏️ Modifica Info & Account
+              </button>
+              <button type="button" id="btn-profile-switch-user" class="btn-secondary-glass navigable focus-compact" tabindex="0">
+                🔄 Cambia Profilo
               </button>
             </div>
           </div>
@@ -472,9 +619,6 @@
               <div id="profile-edit-error" class="pin-error-msg" style="display: none;"></div>
 
               <div class="settings-action-row" style="margin-top: 14px;">
-                <button type="button" id="btn-profile-switch-user" class="btn-secondary-glass navigable focus-compact">
-                  🔄 Cambia Profilo
-                </button>
                 <button type="button" id="btn-profile-delete-user" class="btn-danger-glass navigable focus-compact">
                   🗑 Elimina Profilo
                 </button>
@@ -485,10 +629,13 @@
             </form>
           </div>
 
-          <!-- Profile Nav Content Tabs: Titoli Visti, Consigliati, Commenti -->
+          <!-- Profile Nav Content Tabs: Titoli Visti, In Lista, Consigliati, Commenti -->
           <div class="profile-tabs-bar">
             <button class="profile-tab-btn active" data-tab="watched">
               🎬 Titoli Visti (<span id="tab-count-watched">0</span>)
+            </button>
+            <button class="profile-tab-btn" data-tab="watchlist">
+              📑 Lista (<span id="tab-count-watchlist">0</span>)
             </button>
             <button class="profile-tab-btn" data-tab="recommended">
               ★ Consigliati (<span id="tab-count-recommended">0</span>)
@@ -505,12 +652,17 @@
               <div id="profile-watched-grid" class="profile-media-grid"></div>
             </div>
 
-            <!-- 2. Recommendations List -->
-            <div id="profile-tab-recommended" class="profile-tab-panel" style="display: none;">
-              <div id="profile-recommended-list" class="profile-items-list"></div>
+            <!-- 2. Watchlist Grid -->
+            <div id="profile-tab-watchlist" class="profile-tab-panel" style="display: none;">
+              <div id="profile-watchlist-grid" class="profile-media-grid"></div>
             </div>
 
-            <!-- 3. Comments List -->
+            <!-- 3. Recommendations Grid (same layout as home) -->
+            <div id="profile-tab-recommended" class="profile-tab-panel" style="display: none;">
+              <div id="profile-recommended-grid" class="profile-media-grid"></div>
+            </div>
+
+            <!-- 4. Comments List -->
             <div id="profile-tab-comments" class="profile-tab-panel" style="display: none;">
               <div id="profile-comments-list" class="profile-items-list"></div>
             </div>
@@ -907,6 +1059,22 @@
                 <line x1="19" y1="5" x2="19" y2="19"></line>
               </svg>
             </button>
+            <div class="osd-volume-wrap">
+              <button id="osd-btn-volume" class="osd-btn-circle navigable focus-compact" tabindex="0" title="Regola volume">
+                <svg id="osd-icon-vol-high" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                </svg>
+                <svg id="osd-icon-vol-mute" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                  <line x1="23" y1="9" x2="17" y2="15"></line>
+                  <line x1="17" y1="9" x2="23" y2="15"></line>
+                </svg>
+              </button>
+              <div class="osd-volume-slider-box">
+                <input type="range" id="osd-volume-slider" class="osd-volume-slider navigable focus-compact" min="0" max="1" step="0.05" value="1" tabindex="0" title="Livello volume" />
+              </div>
+            </div>
             <button id="osd-btn-fullscreen" class="osd-btn-circle navigable focus-compact" tabindex="0" title="Schermo intero">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
@@ -967,6 +1135,22 @@
         <button id="prompt-btn-close" class="prompt-btn-close navigable" tabindex="0" title="Chiudi popup">
           ✕
         </button>
+      </div>
+    </div>
+
+    <!-- Poll Voters Modal -->
+    <div id="poll-voters-modal" class="modal-backdrop" style="display: none;">
+      <div class="poll-voters-dialog">
+        <div class="voters-dialog-header">
+          <div class="voters-header-text">
+            <h3 id="poll-voters-title" class="voters-modal-title">Votanti</h3>
+            <span id="poll-voters-subtitle" class="voters-modal-subtitle"></span>
+          </div>
+          <button id="btn-close-voters-modal" class="btn-close-clean navigable focus-compact" title="Chiudi">✕</button>
+        </div>
+        <div id="poll-voters-list" class="poll-voters-list">
+          <!-- Populated dynamically -->
+        </div>
       </div>
     </div>
 

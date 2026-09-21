@@ -223,7 +223,27 @@ const StorageService = {
   getWatchlist() {
     try {
       const data = localStorage.getItem(this.getUserKey(this.KEYS.WATCHLIST));
-      return data ? JSON.parse(data) : [];
+      const list = data ? JSON.parse(data) : [];
+      if (Array.isArray(list)) {
+        return list.map(item => {
+          if (!item) return item;
+          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+          if (isSaturn) {
+            const cleanSlug = item.slug || String(item.id).replace(/^saturn_/, '');
+            item.slug = cleanSlug;
+            if (item.isDub === undefined || item.isDub === null || item.isDub === false) {
+              const detectedDub = (typeof AnimeSaturnService !== 'undefined' && typeof AnimeSaturnService.isDubAnime === 'function')
+                ? AnimeSaturnService.isDubAnime(item.title || item.name, cleanSlug)
+                : (cleanSlug.includes('-ita-') || String(item.title || '').includes('(ITA)'));
+              if (detectedDub) {
+                item.isDub = true;
+              }
+            }
+          }
+          return item;
+        });
+      }
+      return [];
     } catch (e) {
       return [];
     }
@@ -246,21 +266,29 @@ const StorageService = {
           SupabaseService.syncWatchlistRemove(item.id).catch(() => {});
         }
       } else {
-        list.unshift({
+        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+        const cleanSlug = item.slug || (isSaturn ? String(item.id).replace(/^saturn_/, '') : '');
+        const isDub = isSaturn ? (
+          item.isDub === true ||
+          (typeof AnimeSaturnService !== 'undefined' && typeof AnimeSaturnService.isDubAnime === 'function' && AnimeSaturnService.isDubAnime(item.title || item.name, cleanSlug))
+        ) : false;
+
+        const watchlistItem = {
           id: item.id,
-          source: item.source || 'tmdb',
-          slug: item.slug || '',
-          isDub: item.isDub || false,
-          media_type: item.media_type || (item.name && !item.title ? 'tv' : 'movie'),
+          source: item.source || (isSaturn ? 'animesaturn' : 'tmdb'),
+          slug: cleanSlug,
+          isDub: isDub,
+          media_type: item.media_type || (isSaturn ? 'anime' : (item.name && !item.title ? 'tv' : 'movie')),
           title: item.title || item.name,
           poster_path: item.poster_path,
           backdrop_path: item.backdrop_path,
           vote_average: item.vote_average,
           release_date: item.release_date || item.first_air_date
-        });
+        };
+        list.unshift(watchlistItem);
         added = true;
         if (window.SupabaseService) {
-          SupabaseService.syncWatchlistAdd(item).catch(() => {});
+          SupabaseService.syncWatchlistAdd(watchlistItem).catch(() => {});
         }
       }
       localStorage.setItem(this.getUserKey(this.KEYS.WATCHLIST), JSON.stringify(list));
@@ -306,8 +334,13 @@ const StorageService = {
       }
       localStorage.setItem(this.getUserKey(this.KEYS.COMMUNITY_HIDDEN), JSON.stringify(list));
 
-      if (window.SupabaseService && typeof SupabaseService.setMediaCommunityHidden === 'function') {
-        SupabaseService.setMediaCommunityHidden(mediaId, isHidden).catch(() => {});
+      if (window.SupabaseService) {
+        if (typeof SupabaseService.setMediaCommunityHidden === 'function') {
+          SupabaseService.setMediaCommunityHidden(mediaId, isHidden).catch(() => {});
+        }
+        if (typeof SupabaseService.setWatchlistCommunityHidden === 'function') {
+          SupabaseService.setWatchlistCommunityHidden(mediaId, isHidden).catch(() => {});
+        }
       }
       return !!isHidden;
     } catch (e) {
@@ -356,6 +389,12 @@ const StorageService = {
         list = list.filter(item => item !== mediaId);
       }
       localStorage.setItem(this.getUserKey(this.KEYS.DROPPED), JSON.stringify(list));
+
+      // Sync dropped state to cloud in background
+      if (window.SupabaseService && typeof SupabaseService.setMediaDropped === 'function') {
+        SupabaseService.setMediaDropped(mediaId, isDropped).catch(() => {});
+      }
+
       return !!isDropped;
     } catch (e) {
       console.error('Storage setMediaDropped error:', e);
@@ -445,19 +484,108 @@ const StorageService = {
     }
   },
 
-  // Sync cloud data into local storage on login
+  // Sync cloud data into local storage on login / startup
   async syncFromCloud() {
     if (!window.SupabaseService) return;
     const user = SupabaseService.getActiveUser();
-    if (!user) return;
+    if (!user || !user.id) return;
 
     try {
-      const [cloudContinue, cloudWatchlist] = await Promise.all([
-        SupabaseService.getCloudContinueWatching(),
-        SupabaseService.getCloudWatchlist()
+      const [allProgressRows, cloudContinue, cloudWatchlist] = await Promise.all([
+        SupabaseService.getAllUserWatchProgress(user.id).catch(() => []),
+        SupabaseService.getCloudContinueWatching().catch(() => []),
+        SupabaseService.getCloudWatchlist(user.id).catch(() => [])
       ]);
 
+      // 1. Process all watch progress rows from cloud (Source of Truth)
+      const cloudDropped = new Set();
+      const cloudCommunityHidden = new Set();
+      const cloudCompleted = new Set();
+      const cloudHiddenOrReset = new Set();
+
+      const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
+      let positions = {};
+      try {
+        positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
+      } catch (e) {
+        positions = {};
+      }
+
+      if (Array.isArray(allProgressRows)) {
+        for (const r of allProgressRows) {
+          const mId = String(r.media_id);
+          const isSaturn = (r.source === 'animesaturn' || mId.startsWith('saturn_'));
+          const isTv = !isSaturn && (r.media_type === 'tv' || (r.media_type !== 'movie' && Number(r.season) > 0));
+          const isSeries = isTv || isSaturn || r.media_type === 'anime';
+          const prog = Number(r.progress || 0);
+          const isComp = r.is_completed === true || (!isSeries && prog >= 95) || (isSeries && r.is_last_episode === true && prog >= 95);
+
+          if (r.is_dropped === true) cloudDropped.add(mId);
+          if (r.community_hidden === true) cloudCommunityHidden.add(mId);
+          if (isComp) cloudCompleted.add(mId);
+          if (r.is_hidden === true || prog === 0) cloudHiddenOrReset.add(mId);
+
+          // Update local positions cache with authoritative cloud data
+          const posRecord = {
+            id: mId,
+            source: r.source || (isSaturn ? 'animesaturn' : 'tmdb'),
+            media_type: r.media_type || (isSaturn ? 'anime' : (isTv ? 'tv' : 'movie')),
+            title: r.title,
+            name: isTv ? r.title : undefined,
+            poster_path: r.poster_path,
+            backdrop_path: r.backdrop_path,
+            season: isSeries && Number(r.season) > 0 ? Number(r.season) : undefined,
+            episode: isSeries && Number(r.episode) > 0 ? Number(r.episode) : undefined,
+            episode_name: r.episode_name,
+            currentTime: Number(r.playback_time || 0),
+            duration: Number(r.duration || (isSeries ? 2700 : 7200)),
+            progress: prog,
+            isCompleted: isComp,
+            isLastEpisode: !!r.is_last_episode,
+            isDropped: !!r.is_dropped,
+            updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : Date.now()
+          };
+
+          // If reset to 0 and hidden, remove from positions cache so it's truly clean
+          if (prog === 0 && r.is_hidden && !isComp) {
+            delete positions[mId];
+            if (r.season && r.episode) {
+              delete positions[`${mId}_s${r.season}_e${r.episode}`];
+            }
+          } else {
+            positions[mId] = posRecord;
+            if (r.season && r.episode) {
+              positions[`${mId}_s${r.season}_e${r.episode}`] = posRecord;
+            }
+          }
+        }
+      }
+
+      // Save updated positions
+      try {
+        localStorage.setItem(positionsKey, JSON.stringify(positions));
+      } catch (e) {}
+
+      // Sync dropped and hidden lists to local storage
+      if (cloudDropped.size > 0) {
+        localStorage.setItem(this.getUserKey(this.KEYS.DROPPED), JSON.stringify(Array.from(cloudDropped)));
+      }
+      if (cloudCommunityHidden.size > 0) {
+        localStorage.setItem(this.getUserKey(this.KEYS.COMMUNITY_HIDDEN), JSON.stringify(Array.from(cloudCommunityHidden)));
+      }
+
+      // 2. Sync Continue Watching: Cloud is authoritative
       if (Array.isArray(cloudContinue)) {
+        const finalContinueMap = new Map();
+        for (const item of cloudContinue) {
+          if (!item || !item.id) continue;
+          const mId = String(item.id);
+          // Safety: skip if completed, dropped, or hidden
+          if (cloudCompleted.has(mId) || cloudDropped.has(mId) || cloudHiddenOrReset.has(mId)) continue;
+          finalContinueMap.set(mId, item);
+        }
+
+        // Check existing local items: only preserve if strictly newer than cloud AND not marked completed/dropped/hidden in cloud
         let existingLocal = [];
         try {
           const raw = localStorage.getItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING));
@@ -467,55 +595,90 @@ const StorageService = {
           existingLocal = [];
         }
 
-        const mergedMap = new Map();
-        for (const item of cloudContinue) {
-          if (!item || !item.id) continue;
-          mergedMap.set(String(item.id), item);
-        }
-
         for (const localItem of existingLocal) {
           if (!localItem || !localItem.id) continue;
           const mId = String(localItem.id);
-          const cloudItem = mergedMap.get(mId);
-          if (!cloudItem) {
-            mergedMap.set(mId, localItem);
-          } else {
+          // If completed, dropped, or hidden in cloud -> NEVER resurrect!
+          if (cloudCompleted.has(mId) || cloudDropped.has(mId) || cloudHiddenOrReset.has(mId)) continue;
+
+          const cloudItem = finalContinueMap.get(mId);
+          if (cloudItem) {
             const localTime = Number(localItem.updatedAt || localItem.timestamp || 0);
             const cloudTime = Number(cloudItem.updatedAt || cloudItem.timestamp || 0);
             if (localTime > cloudTime) {
-              mergedMap.set(mId, { ...cloudItem, ...localItem });
+              finalContinueMap.set(mId, { ...cloudItem, ...localItem });
             }
           }
         }
 
-        const mergedList = Array.from(mergedMap.values());
-        mergedList.sort((a, b) => {
+        const sortedList = Array.from(finalContinueMap.values());
+        sortedList.sort((a, b) => {
           const timeA = Number(a.updatedAt || a.timestamp || 0);
           const timeB = Number(b.updatedAt || b.timestamp || 0);
           return timeB - timeA;
         });
 
-        localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(mergedList.slice(0, 30)));
-        
-        // Also populate positions cache
-        try {
-          const positionsKey = this.getUserKey(this.KEYS.PLAYBACK_POSITIONS);
-          const positions = JSON.parse(localStorage.getItem(positionsKey) || '{}');
-          for (const item of mergedList) {
-            const mId = String(item.id);
-            positions[mId] = item;
-            if (item.season && item.episode) {
-              positions[`${mId}_s${item.season}_e${item.episode}`] = item;
-            }
-          }
-          localStorage.setItem(positionsKey, JSON.stringify(positions));
-        } catch (err) {}
+        localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(sortedList.slice(0, 30)));
       }
-      if (Array.isArray(cloudWatchlist) && cloudWatchlist.length > 0) {
-        localStorage.setItem(this.getUserKey(this.KEYS.WATCHLIST), JSON.stringify(cloudWatchlist));
+
+      // 3. Sync Watchlist
+      if (Array.isArray(cloudWatchlist)) {
+        const hydratedWatchlist = cloudWatchlist.map(item => {
+          if (!item) return item;
+          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+          if (isSaturn) {
+            const cleanSlug = item.slug || String(item.id).replace(/^saturn_/, '');
+            const isDub = item.isDub === true || (
+              typeof AnimeSaturnService !== 'undefined' && typeof AnimeSaturnService.isDubAnime === 'function'
+                ? AnimeSaturnService.isDubAnime(item.title || item.name, cleanSlug)
+                : (cleanSlug.includes('-ita-') || String(item.title || '').includes('(ITA)'))
+            );
+            return { ...item, isDub, slug: cleanSlug };
+          }
+          return item;
+        });
+        localStorage.setItem(this.getUserKey(this.KEYS.WATCHLIST), JSON.stringify(hydratedWatchlist));
       }
     } catch (e) {
       console.warn('[StorageService] Cloud sync error:', e);
+    }
+  },
+
+  // Anime DUB status updater
+  updateAnimeDubStatus(mediaId, isDub) {
+    try {
+      if (!mediaId) return;
+      const mId = String(mediaId);
+      let wl = this.getWatchlist();
+      let wlChanged = false;
+      wl = wl.map(i => {
+        if (String(i.id) === mId && i.isDub !== isDub) {
+          i.isDub = isDub;
+          wlChanged = true;
+        }
+        return i;
+      });
+      if (wlChanged) {
+        localStorage.setItem(this.getUserKey(this.KEYS.WATCHLIST), JSON.stringify(wl));
+        if (window.SupabaseService && typeof SupabaseService.syncWatchlistDubStatus === 'function') {
+          SupabaseService.syncWatchlistDubStatus(mId, isDub).catch(() => {});
+        }
+      }
+
+      let cw = this.getContinueWatching();
+      let cwChanged = false;
+      cw = cw.map(i => {
+        if (String(i.id) === mId && i.isDub !== isDub) {
+          i.isDub = isDub;
+          cwChanged = true;
+        }
+        return i;
+      });
+      if (cwChanged) {
+        localStorage.setItem(this.getUserKey(this.KEYS.CONTINUE_WATCHING), JSON.stringify(cw));
+      }
+    } catch (e) {
+      console.warn('[StorageService] updateAnimeDubStatus error:', e);
     }
   }
 };

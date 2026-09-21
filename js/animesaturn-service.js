@@ -44,8 +44,37 @@ const AnimeSaturnService = {
     if (!title && !slug) return false;
     const t = (title || '').toLowerCase();
     const s = (slug || '').toLowerCase();
-    if (t.includes('(ita)') || t.includes(' ita') || t.includes('doppiato') || t.includes('italiano')) return true;
-    if (s.includes('-ita-') || s.endsWith('-ita') || s.includes('_ita_') || s.endsWith('_ita')) return true;
+
+    // Explicit slug indicators on AnimeSaturn (e.g. -ita-, -ita, -dub-)
+    if (
+      s.includes('-ita-') || s.endsWith('-ita') ||
+      s.includes('_ita_') || s.endsWith('_ita') ||
+      s.includes('-dub-') || s.endsWith('-dub') ||
+      s.includes('_dub_') || s.endsWith('_dub')
+    ) {
+      return true;
+    }
+
+    // Explicit SUB keywords exclude DUB
+    const isExplicitSub = t.includes('sub ita') || t.includes('ita sub') || t.includes('(sub)') || t.includes('subtitled');
+    if (isExplicitSub) {
+      return false;
+    }
+
+    // Explicit DUB indicators in title
+    if (
+      t.includes('(ita)') ||
+      t.includes('(dub)') ||
+      t.includes('(dub ita)') ||
+      t.includes('dub ita') ||
+      t.includes('doppiato') ||
+      t.includes('italiano') ||
+      /\bita\b/.test(t) ||
+      /\bdub\b/.test(t)
+    ) {
+      return true;
+    }
+
     return false;
   },
 

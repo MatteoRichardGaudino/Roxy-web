@@ -63,6 +63,21 @@ class RoxyApp {
 
     // 5. Load initial home page catalog progressively
     this.loadHomeCatalog();
+
+    // 6. Realtime Community Live Updates
+    if (window.SupabaseService && typeof SupabaseService.subscribeCommunityRealtime === 'function') {
+      SupabaseService.subscribeCommunityRealtime(() => {
+        if (this.currentSection === 'community') {
+          this.loadCommunitySection(true);
+        } else if (this.currentSection === 'home') {
+          this.renderCommunityRow();
+        }
+        this.updateCardsSocialStacks();
+      });
+    }
+
+    this.bindHomeCategoryPills();
+    this.bindCommunityEvents();
   }
 
   // =========================================================================
@@ -109,8 +124,39 @@ class RoxyApp {
     }
   }
 
+  bindHomeCategoryPills() {
+    const pills = document.querySelectorAll('.category-pill-btn');
+    pills.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.getAttribute('data-action');
+        if (action === 'goto-movies') {
+          this.switchSection('movies');
+        } else if (action === 'goto-tv') {
+          this.switchSection('tv');
+        } else if (action === 'goto-community') {
+          this.switchSection('community');
+        } else if (action === 'goto-anime') {
+          if (this.currentSection !== 'home') {
+            this.switchSection('home');
+          }
+          setTimeout(() => {
+            const animeRow = document.getElementById('row-animesaturn') || document.querySelector('[data-type="anime"]');
+            if (animeRow) {
+              animeRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }, 300);
+        }
+      });
+    });
+  }
+
   switchSection(sectionName) {
     this.currentSection = sectionName;
+
+    // Asynchronously refresh home community row on page change (debounced, optimized)
+    if (this.refreshCommunityRowAsync) {
+      this.refreshCommunityRowAsync();
+    }
 
     // Update active desktop nav button
     document.querySelectorAll('.nav-item').forEach(btn => {
@@ -151,6 +197,8 @@ class RoxyApp {
       this.loadTVCatalog();
     } else if (sectionName === 'watchlist') {
       this.renderWatchlist();
+    } else if (sectionName === 'community') {
+      this.loadCommunitySection();
     } else if (sectionName === 'users') {
       this.loadUsersSection();
     } else if (sectionName === 'feedback') {
@@ -540,8 +588,12 @@ class RoxyApp {
   // =========================================================================
   // Media Card HTML Generator (TMDB & AnimeSaturn)
   // =========================================================================
-  getMediaCardHtml(item) {
+  getMediaCardHtml(item, options = {}) {
     const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+    const isDub = isSaturn && (
+      item.isDub === true ||
+      (typeof AnimeSaturnService !== 'undefined' && typeof AnimeSaturnService.isDubAnime === 'function' && AnimeSaturnService.isDubAnime(item.title || item.name, item.slug || item.id))
+    );
     const isAvailable = isSaturn ? true : CatalogService.isItemAvailable(item);
     const posterUrl = (item.poster_path && item.poster_path.startsWith('http'))
       ? item.poster_path
@@ -550,11 +602,19 @@ class RoxyApp {
     let topBadges = '';
     let topLeftBadges = '';
 
+    if (options.isRecommended) {
+      topLeftBadges += `<span class="badge-rec-star-corner" title="Consigliato assolutamente">★</span>`;
+    }
+
     if (isSaturn) {
-      topLeftBadges = `<span class="saturn-tag">🪐</span>`;
-      topBadges = item.isDub ? `<span class="badge-dub">DUB</span>` : `<span class="badge-sub">SUB</span>`;
+      topLeftBadges += `<span class="saturn-tag">🪐</span>`;
+      topBadges = isDub ? `<span class="badge-dub">DUB</span>` : `<span class="badge-sub">SUB</span>`;
     } else {
       topBadges = isAvailable ? `<span class="badge-rating">★ ${(item.vote_average || 7.0).toFixed(1)}</span>` : `<span class="badge-unavailable">Non disp.</span>`;
+    }
+
+    if (item.community_hidden) {
+      topBadges += `<span class="badge-hidden-private" title="Nascosto alla community">🔒</span>`;
     }
 
     const title = isSaturn ? AnimeSaturnService.cleanAnimeTitle(item.title || item.name) : (item.title || item.name);
@@ -583,7 +643,7 @@ class RoxyApp {
           <div class="card-meta">
             ${year ? `<span>${year}</span><span>•</span>` : ''}
             <span>${mediaLabel}</span>
-            ${isSaturn ? `<span>•</span><span>${item.isDub ? 'DUB ITA' : 'SUB ITA'}</span>` : ''}
+            ${isSaturn ? `<span>•</span><span>${isDub ? 'DUB ITA' : 'SUB ITA'}</span>` : ''}
           </div>
         </div>
       </div>
@@ -660,6 +720,55 @@ class RoxyApp {
     });
   }
 
+  attachCardClickHandlers(container, items) {
+    if (!container) return;
+    const cards = container.querySelectorAll ? container.querySelectorAll('.media-card[data-id]') : [];
+    cards.forEach(card => {
+      const rawId = card.getAttribute('data-id');
+      const item = Array.isArray(items) ? items.find(i => String(i.id || i.media_id) === String(rawId)) : null;
+      if (!item) return;
+
+      const isSaturn = (item.source === 'animesaturn' || String(item.id || item.media_id).startsWith('saturn_'));
+      const playBtn = card.querySelector('.card-play-indicator');
+      if (playBtn) {
+        playBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (!isSaturn && !CatalogService.isItemAvailable(item)) {
+            this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
+            return;
+          }
+          this.lastFocusedElement = card;
+          PlayerController.play(item);
+        });
+      }
+
+      let touchMoved = false;
+      let touchStartTime = 0;
+      card.addEventListener('touchstart', () => {
+        touchMoved = false;
+        touchStartTime = Date.now();
+      }, { passive: true });
+
+      card.addEventListener('touchmove', () => {
+        touchMoved = true;
+      }, { passive: true });
+
+      card.addEventListener('touchend', () => {
+        if (!touchMoved && (Date.now() - touchStartTime < 450)) {
+          card._lastTapped = Date.now();
+          this.lastFocusedElement = card;
+          this.openDetailsModal(item);
+        }
+      });
+
+      card.addEventListener('click', () => {
+        if (card._lastTapped && (Date.now() - card._lastTapped < 500)) return;
+        this.lastFocusedElement = card;
+        this.openDetailsModal(item);
+      });
+    });
+  }
+
   // =========================================================================
   // Continue Watching Row (Real Progress & Exact Resume Point)
   // =========================================================================
@@ -696,9 +805,13 @@ class RoxyApp {
             ? (currentMins > 0 ? `${currentMins}/${durMins} min` : `${currentSecs}s/${durMins}m`) 
             : (currentMins > 0 ? `${currentMins} min` : `${currentSecs}s`);
           const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
+          const isDub = isSaturn && (
+            item.isDub === true ||
+            (typeof AnimeSaturnService !== 'undefined' && typeof AnimeSaturnService.isDubAnime === 'function' && AnimeSaturnService.isDubAnime(item.title || item.name, item.slug || item.id))
+          );
           const isTv = (item.media_type === 'tv' || isSaturn);
           const subInfo = isSaturn 
-            ? `Ep. ${item.episode || 1} • ${item.isDub ? 'DUB' : 'SUB'}` 
+            ? `Ep. ${item.episode || 1} • ${isDub ? 'DUB' : 'SUB'}` 
             : (isTv ? `S${item.season || 1}:E${item.episode || 1}` : '');
 
           const posterUrl = (item.backdrop_path || item.poster_path || '');
@@ -781,6 +894,25 @@ class RoxyApp {
     return new Date(timestamp).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
   }
 
+  refreshCommunityRowAsync(options = {}) {
+    const now = Date.now();
+    // Cache threshold: skip re-fetch if last fetch was within 8 seconds unless force is true
+    if (!options.force && this._lastCommunityRowFetchTime && (now - this._lastCommunityRowFetchTime < 8000)) {
+      return;
+    }
+
+    if (this._communityRowDebounceTimer) {
+      clearTimeout(this._communityRowDebounceTimer);
+    }
+
+    this._communityRowDebounceTimer = setTimeout(() => {
+      this._lastCommunityRowFetchTime = Date.now();
+      this.renderCommunityRow().catch(err => {
+        console.warn('[Roxy] Background community row refresh notice:', err);
+      });
+    }, 350);
+  }
+
   async renderCommunityRow() {
     if (this._communityRowPromise) {
       return this._communityRowPromise;
@@ -844,67 +976,89 @@ class RoxyApp {
         <div class="row-header">
           <h2 class="row-title">
             <span>👥 Community</span>
-            <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Attività e consigli degli amici</span>
+            <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Attività, post e sondaggi della community</span>
           </h2>
         </div>
         <div class="row-carousel" id="carousel-community">
           ${feedItems.map(item => {
             const timeAgo = this.formatTimeAgo(item.timestamp);
-            const isRec = item.feedType === 'recommendation';
-            const isWatching = item.feedType === 'watching';
+            const isPoll = (item.feedType === 'poll');
+            const isPost = (item.feedType === 'post');
+            const isRec = (item.feedType === 'recommendation');
+            const isWatching = (item.feedType === 'watching');
             const isSaturn = (item.source === 'animesaturn' || String(item.mediaId).startsWith('saturn_'));
             const cleanTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
 
-            const posterUrl = (item.posterPath || item.backdropPath || '');
-            const imgUrl = (posterUrl.startsWith('http')) 
-              ? posterUrl 
-              : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w185') : 'assets/icon.png');
-
             let actionText = 'ha commentato';
             let actionClass = '';
-            let bodyContent = `<div class="community-card-body">"${this.escapeHtml(item.text || '')}"</div>`;
+            let cardTypeClass = '';
+            let bodyContent = '';
+            let bottomChipHtml = '';
+            let isMedia = false;
 
-            if (isRec) {
-              actionText = 'consiglia assolutamente';
-              actionClass = 'is-rec';
+            if (isPoll) {
+              actionText = 'ha creato un sondaggio';
+              actionClass = 'is-poll';
+              cardTypeClass = 'type-community-poll';
               bodyContent = `
-                <div class="community-card-body rec-body">
-                  <span>★ Da vedere assolutamente!</span>
+                <div class="community-card-body poll-notify-body">
+                  <span class="poll-notify-badge">📊 Sondaggio • Vai a rispondere</span>
+                  <span class="poll-notify-title">"${this.escapeHtml(item.text || '')}"</span>
                 </div>
               `;
-            } else if (isWatching) {
-              const isCompleted = item.watchStatus === 'completed';
-              const isDropped = item.watchStatus === 'dropped';
-              actionText = item.actionText || (isDropped ? 'ha droppato' : (isCompleted ? 'ha visto' : 'sta guardando'));
-              actionClass = item.actionClass || (isDropped ? 'is-dropped' : (isCompleted ? 'is-completed' : 'is-watching'));
-              const defaultText = isDropped ? 'Ha abbandonato la visione (non piaciuto)' : (isCompleted ? 'Ha completato la visione' : 'In riproduzione');
-              const bodyColor = isDropped ? '#f59e0b' : 'var(--text-med)';
-              bodyContent = `<div class="community-card-body" style="color: ${bodyColor}; font-size: 0.88rem;">${this.escapeHtml(item.text || defaultText)}</div>`;
-            }
-
-            const avatarHtml = item.avatar_url 
-              ? `<img src="${item.avatar_url}" class="profile-avatar-img" alt="${this.escapeHtml(item.username)}" onerror="this.outerHTML='${this.escapeHtml(item.avatar_emoji || '🍿')}'" />`
-              : this.escapeHtml(item.avatar_emoji || '🍿');
-
-            const cardTypeClass = isRec 
-              ? 'type-recommendation' 
-              : (item.watchStatus === 'dropped' ? 'type-dropped' : (item.watchStatus === 'completed' ? 'type-completed' : 'type-watching'));
-
-            return `
-              <div class="community-feed-card navigable focus-compact ${cardTypeClass}" tabindex="0" data-media-id="${item.mediaId}" data-source="${item.source || 'tmdb'}" data-media-type="${item.mediaType || 'movie'}" data-slug="${item.slug || ''}">
-                <div class="community-card-top">
-                  <div class="community-user-info">
-                    <div class="community-user-avatar">${avatarHtml}</div>
-                    <div class="community-user-text">
-                      <div class="community-user-name">${this.escapeHtml(item.username || 'Amico')}</div>
-                      <div class="community-action-tag ${actionClass}">${actionText}</div>
-                    </div>
+              bottomChipHtml = `
+                <div class="community-card-comm-chip is-poll-chip">
+                  <span class="comm-chip-icon">📊</span>
+                  <div class="comm-chip-meta">
+                    <span class="comm-chip-title">Sondaggio della Community</span>
+                    <span class="comm-chip-sub">Clicca per rispondere ➔</span>
                   </div>
-                  <div class="community-time-ago">${timeAgo}</div>
                 </div>
+              `;
+            } else if (isPost) {
+              actionText = 'ha scritto un post';
+              actionClass = 'is-post';
+              cardTypeClass = 'type-community-post';
+              bodyContent = `<div class="community-card-body">"${this.escapeHtml(item.text || '')}"</div>`;
+              bottomChipHtml = `
+                <div class="community-card-comm-chip">
+                  <span class="comm-chip-icon">💬</span>
+                  <div class="comm-chip-meta">
+                    <span class="comm-chip-title">Post Libero</span>
+                    <span class="comm-chip-sub">Apri la Community ➔</span>
+                  </div>
+                </div>
+              `;
+            } else {
+              isMedia = true;
+              const posterUrl = (item.posterPath || item.backdropPath || '');
+              const imgUrl = (posterUrl.startsWith('http')) 
+                ? posterUrl 
+                : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w185') : 'assets/icon.png');
 
-                ${bodyContent}
+              if (isRec) {
+                actionText = 'consiglia assolutamente';
+                actionClass = 'is-rec';
+                cardTypeClass = 'type-recommendation';
+                bodyContent = `
+                  <div class="community-card-body rec-body">
+                    <span>★ Da vedere assolutamente!</span>
+                  </div>
+                `;
+              } else if (isWatching) {
+                const isCompleted = item.watchStatus === 'completed';
+                const isDropped = item.watchStatus === 'dropped';
+                actionText = item.actionText || (isDropped ? 'ha droppato' : (isCompleted ? 'ha visto' : 'sta guardando'));
+                actionClass = item.actionClass || (isDropped ? 'is-dropped' : (isCompleted ? 'is-completed' : 'is-watching'));
+                cardTypeClass = isDropped ? 'type-dropped' : (isCompleted ? 'type-completed' : 'type-watching');
+                const defaultText = isDropped ? 'Ha abbandonato la visione (non piaciuto)' : (isCompleted ? 'Ha completato la visione' : 'In riproduzione');
+                const bodyColor = isDropped ? '#f59e0b' : 'var(--text-med)';
+                bodyContent = `<div class="community-card-body" style="color: ${bodyColor}; font-size: 0.88rem;">${this.escapeHtml(item.text || defaultText)}</div>`;
+              } else {
+                bodyContent = `<div class="community-card-body">"${this.escapeHtml(item.text || '')}"</div>`;
+              }
 
+              bottomChipHtml = `
                 <div class="community-card-media-chip">
                   <img src="${imgUrl}" alt="${this.escapeHtml(cleanTitle)}" class="community-media-thumb" loading="lazy" />
                   <div class="community-media-meta">
@@ -912,6 +1066,39 @@ class RoxyApp {
                     <div class="community-media-sub">${isSaturn ? 'Anime' : (item.mediaType === 'tv' ? 'Serie TV' : 'Film')}</div>
                   </div>
                 </div>
+              `;
+            }
+
+            const avatarUrl = item.avatar_url || item.avatarUrl;
+            const avatarEmoji = item.avatar_emoji || item.avatarEmoji || '🍿';
+            const avatarHtml = avatarUrl 
+              ? `<img src="${avatarUrl}" class="profile-avatar-img" alt="${this.escapeHtml(item.username)}" onerror="this.outerHTML='${this.escapeHtml(avatarEmoji)}'" />`
+              : this.escapeHtml(avatarEmoji);
+
+            const dataAttrs = isMedia
+              ? `data-action="open-media" data-media-id="${item.mediaId}" data-source="${item.source || 'tmdb'}" data-media-type="${item.mediaType || 'movie'}" data-slug="${item.slug || ''}"`
+              : `data-action="open-community"`;
+
+            const isPinned = !!item.isPinned;
+            const pinnedClass = isPinned ? 'is-pinned-feed' : '';
+            const pinnedTag = isPinned ? '<span class="comm-feed-pinned-badge">📌 In alto</span> ' : '';
+
+            return `
+              <div class="community-feed-card navigable focus-compact ${cardTypeClass} ${pinnedClass}" tabindex="0" ${dataAttrs}>
+                <div class="community-card-top">
+                  <div class="community-user-info">
+                    <div class="community-user-avatar">${avatarHtml}</div>
+                    <div class="community-user-text">
+                      <div class="community-user-name">${this.escapeHtml(item.username || 'Amico')}</div>
+                      <div class="community-action-tag ${actionClass}">${pinnedTag}${actionText}</div>
+                    </div>
+                  </div>
+                  <div class="community-time-ago">${timeAgo}</div>
+                </div>
+
+                ${bodyContent}
+
+                ${bottomChipHtml}
               </div>
             `;
           }).join('')}
@@ -920,20 +1107,29 @@ class RoxyApp {
 
       this.setupCarouselArrows(container);
 
-      // Attach click events: opening the media details modal
+      // Attach click events: media opens details modal, non-media opens community section
       container.querySelectorAll('.community-feed-card').forEach(card => {
         card.addEventListener('click', () => {
+          const action = card.getAttribute('data-action');
+          if (action === 'open-community') {
+            this.switchSection('community');
+            return;
+          }
           const mediaId = card.getAttribute('data-media-id');
           const source = card.getAttribute('data-source');
           const mediaType = card.getAttribute('data-media-type');
           const slug = card.getAttribute('data-slug');
-          this.lastFocusedElement = card;
-          this.openDetailsModal({
-            id: mediaId,
-            source: source,
-            media_type: mediaType,
-            slug: slug
-          });
+          if (mediaId && mediaId !== 'undefined' && mediaId !== 'null') {
+            this.lastFocusedElement = card;
+            this.openDetailsModal({
+              id: mediaId,
+              source: source,
+              media_type: mediaType,
+              slug: slug
+            });
+          } else {
+            this.switchSection('community');
+          }
         });
       });
     } catch (e) {
@@ -968,30 +1164,8 @@ class RoxyApp {
     this.updateCardsSocialStacks(row);
     this.setupCarouselArrows(row);
 
-    // Attach click listeners: play button starts playback, card body opens details modal
-    row.querySelectorAll('.media-card').forEach(card => {
-      const rawId = card.getAttribute('data-id');
-      const item = items.find(i => String(i.id) === String(rawId));
-      if (item) {
-        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
-        const playBtn = card.querySelector('.card-play-indicator');
-        if (playBtn) {
-          playBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!isSaturn && !CatalogService.isItemAvailable(item)) {
-              this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
-              return;
-            }
-            this.lastFocusedElement = card;
-            PlayerController.play(item);
-          });
-        }
-        card.addEventListener('click', () => {
-          this.lastFocusedElement = card;
-          this.openDetailsModal(item);
-        });
-      }
-    });
+    // Attach click and touch tap listeners
+    this.attachCardClickHandlers(row, items);
   }
 
   // =========================================================================
@@ -1024,6 +1198,16 @@ class RoxyApp {
       const slug = item.slug || String(item.id).replace('saturn_', '');
       const fetched = await AnimeSaturnService.getAnimeDetails(slug);
       data = fetched || item;
+      if (data) {
+        if (data.isDub === undefined || data.isDub === null) {
+          data.isDub = (typeof AnimeSaturnService !== 'undefined' && typeof AnimeSaturnService.isDubAnime === 'function')
+            ? AnimeSaturnService.isDubAnime(data.title || data.name, slug)
+            : false;
+        }
+        if (typeof StorageService !== 'undefined' && typeof StorageService.updateAnimeDubStatus === 'function') {
+          StorageService.updateAnimeDubStatus(data.id, data.isDub);
+        }
+      }
     } else {
       const mediaType = item.media_type || (item.name && !item.title ? 'tv' : 'movie');
       const fullDetails = await TMDBService.getDetails(item.id, mediaType);
@@ -2770,12 +2954,14 @@ class RoxyApp {
       currentResults.sort((a, b) => {
         const aIsSaturn = (a.source === 'animesaturn' || String(a.id).startsWith('saturn_'));
         const bIsSaturn = (b.source === 'animesaturn' || String(b.id).startsWith('saturn_'));
+        const aDub = aIsSaturn && (a.isDub === true || (typeof AnimeSaturnService !== 'undefined' && typeof AnimeSaturnService.isDubAnime === 'function' && AnimeSaturnService.isDubAnime(a.title || a.name, a.slug || a.id)));
+        const bDub = bIsSaturn && (b.isDub === true || (typeof AnimeSaturnService !== 'undefined' && typeof AnimeSaturnService.isDubAnime === 'function' && AnimeSaturnService.isDubAnime(b.title || b.name, b.slug || b.id)));
 
-        if (aIsSaturn && a.isDub && (!bIsSaturn || !b.isDub)) return -1;
-        if (bIsSaturn && b.isDub && (!aIsSaturn || !a.isDub)) return 1;
+        if (aIsSaturn && aDub && (!bIsSaturn || !bDub)) return -1;
+        if (bIsSaturn && bDub && (!aIsSaturn || !aDub)) return 1;
 
-        if (aIsSaturn && !a.isDub && !bIsSaturn) return 1;
-        if (bIsSaturn && !b.isDub && !aIsSaturn) return -1;
+        if (aIsSaturn && !aDub && !bIsSaturn) return 1;
+        if (bIsSaturn && !bDub && !aIsSaturn) return -1;
 
         return 0;
       });
@@ -2787,30 +2973,8 @@ class RoxyApp {
 
       grid.innerHTML = currentResults.map(item => this.getMediaCardHtml(item)).join('');
 
-      // Reattach click listeners
-      grid.querySelectorAll('.media-card').forEach(card => {
-        const rawId = card.getAttribute('data-id');
-        const item = currentResults.find(i => String(i.id) === String(rawId));
-        if (item) {
-          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
-          const playBtn = card.querySelector('.card-play-indicator');
-          if (playBtn) {
-            playBtn.addEventListener('click', (e) => {
-              e.stopPropagation();
-              if (!isSaturn && !CatalogService.isItemAvailable(item)) {
-                this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
-                return;
-              }
-              this.lastFocusedElement = card;
-              PlayerController.play(item);
-            });
-          }
-          card.addEventListener('click', () => {
-            this.lastFocusedElement = card;
-            this.openDetailsModal(item);
-          });
-        }
-      });
+      // Reattach click and touch tap listeners
+      this.attachCardClickHandlers(grid, currentResults);
     };
 
     // 1. Launch TMDB search -> update immediately upon response
@@ -2849,30 +3013,7 @@ class RoxyApp {
     }
 
     grid.innerHTML = list.map(item => this.getMediaCardHtml(item)).join('');
-
-    grid.querySelectorAll('.media-card').forEach(card => {
-      const rawId = card.getAttribute('data-id');
-      const item = list.find(i => String(i.id) === String(rawId));
-      if (item) {
-        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
-        const playBtn = card.querySelector('.card-play-indicator');
-        if (playBtn) {
-          playBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!isSaturn && !CatalogService.isItemAvailable(item)) {
-              this.showToast('Questo contenuto non è attualmente disponibile per lo streaming in italiano.');
-              return;
-            }
-            this.lastFocusedElement = card;
-            PlayerController.play(item);
-          });
-        }
-        card.addEventListener('click', () => {
-          this.lastFocusedElement = card;
-          this.openDetailsModal(item);
-        });
-      }
-    });
+    this.attachCardClickHandlers(grid, list);
   }
 
   // =========================================================================
@@ -2979,6 +3120,17 @@ class RoxyApp {
         filtered = entries.filter(e => e.type === 'feature');
       }
 
+      // Sort: uncompleted first, completed at the bottom. Within same status: most upvotes first, then newest
+      filtered.sort((a, b) => {
+        if (a.isCompleted !== b.isCompleted) {
+          return a.isCompleted ? 1 : -1;
+        }
+        if (b.upvotesCount !== a.upvotesCount) {
+          return b.upvotesCount - a.upvotesCount;
+        }
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
       if (filtered.length === 0) {
         listContainer.innerHTML = '<div class="feedback-empty-state">Nessuna segnalazione presente in questa categoria. Lascia tu la prima! 🍿</div>';
         return;
@@ -3024,6 +3176,13 @@ class RoxyApp {
                 </div>
               </div>
               <div class="feedback-card-tags">
+                <button class="feedback-id-badge navigable focus-compact" data-copy-id="${item.id}" title="Clicca per copiare l'ID completo" aria-label="Copia ID">
+                  <span>#${item.id.slice(0, 8)}</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
                 <span class="${isBug ? 'tag-type-bug' : 'tag-type-feature'}">${isBug ? '🐞 Bug' : '✨ Feature'}</span>
                 ${isCompleted ? `<span class="tag-completed">✓ ${isBug ? 'Risolto' : 'Completato'}</span>` : ''}
                 ${isOwn ? `
@@ -3061,6 +3220,25 @@ class RoxyApp {
           </div>
         `;
       }).join('');
+
+      // Bind ID Copy click handlers
+      listContainer.querySelectorAll('.feedback-id-badge').forEach(badge => {
+        badge.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idToCopy = badge.getAttribute('data-copy-id');
+          if (idToCopy) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(idToCopy).then(() => {
+                this.showToast(`ID ${idToCopy.slice(0, 8)} copiato negli appunti! 📋`);
+              }).catch(() => {
+                this.showToast(`ID: ${idToCopy}`);
+              });
+            } else {
+              this.showToast(`ID: ${idToCopy}`);
+            }
+          }
+        });
+      });
 
       // Bind Upvote click handlers
       listContainer.querySelectorAll('.btn-upvote').forEach(btn => {
@@ -3108,6 +3286,646 @@ class RoxyApp {
       console.error('[Roxy] Error loading feedback section:', err);
       listContainer.innerHTML = '<div class="feedback-empty-state">Errore durante il caricamento dei feedback.</div>';
     }
+  }
+
+  // =========================================================================
+  // Community Page Controller
+  // =========================================================================
+  bindCommunityEvents() {
+    this.currentCommunityFilter = 'all';
+    this.communityEventsList = [];
+
+    // Creator Tabs Toggle
+    const tabBtnPost = document.getElementById('tab-btn-post');
+    const tabBtnPoll = document.getElementById('tab-btn-poll');
+    const formPost = document.getElementById('community-post-form');
+    const formPoll = document.getElementById('community-poll-form');
+
+    if (tabBtnPost && tabBtnPoll && formPost && formPoll) {
+      tabBtnPost.addEventListener('click', () => {
+        tabBtnPost.classList.add('active');
+        tabBtnPoll.classList.remove('active');
+        formPost.style.display = 'block';
+        formPoll.style.display = 'none';
+      });
+
+      tabBtnPoll.addEventListener('click', () => {
+        tabBtnPoll.classList.add('active');
+        tabBtnPost.classList.remove('active');
+        formPoll.style.display = 'block';
+        formPost.style.display = 'none';
+      });
+    }
+
+    // Post Text Character Counter
+    const postTextarea = document.getElementById('community-post-text');
+    const postCharCounter = document.getElementById('community-post-char-count');
+    if (postTextarea && postCharCounter) {
+      postTextarea.addEventListener('input', () => {
+        postCharCounter.textContent = `${postTextarea.value.length}/1000`;
+      });
+    }
+
+    // Free Post Form Submission
+    if (formPost) {
+      formPost.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const activeUser = SupabaseService.getActiveUser();
+        if (!activeUser || !activeUser.id) {
+          this.showToast('Accedi con il tuo profilo per pubblicare un post.');
+          this.showProfileSelectorModal();
+          return;
+        }
+
+        const text = postTextarea ? postTextarea.value.trim() : '';
+        if (!text) {
+          this.showToast('Inserisci un messaggio per il post.');
+          return;
+        }
+
+        const submitBtn = document.getElementById('btn-submit-post');
+        if (submitBtn) submitBtn.disabled = true;
+
+        try {
+          await SupabaseService.createCommunityPost(text);
+          this.showToast('Post pubblicato nella community! 🍿');
+          if (postTextarea) postTextarea.value = '';
+          if (postCharCounter) postCharCounter.textContent = '0/1000';
+          await this.loadCommunitySection();
+        } catch (err) {
+          console.error('[Roxy] Error creating post:', err);
+          this.showToast(err.message || 'Errore durante la pubblicazione del post.');
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+
+    // Dynamic Poll Options
+    const btnAddOption = document.getElementById('btn-add-poll-option');
+    const pollOptionsList = document.getElementById('poll-options-list');
+
+    const refreshOptionNumbers = () => {
+      if (!pollOptionsList) return;
+      const rows = pollOptionsList.querySelectorAll('.poll-option-row');
+      rows.forEach((row, idx) => {
+        const bullet = row.querySelector('.option-idx-bullet');
+        const input = row.querySelector('.poll-opt-input');
+        if (bullet) bullet.textContent = String(idx + 1);
+        if (input) input.placeholder = `Opzione ${idx + 1}`;
+      });
+      if (btnAddOption) {
+        btnAddOption.style.display = (rows.length >= 8) ? 'none' : 'inline-flex';
+      }
+    };
+
+    if (btnAddOption && pollOptionsList) {
+      btnAddOption.addEventListener('click', () => {
+        const currentCount = pollOptionsList.querySelectorAll('.poll-option-row').length;
+        if (currentCount >= 8) return;
+
+        const row = document.createElement('div');
+        row.className = 'poll-option-row';
+        row.innerHTML = `
+          <span class="option-idx-bullet">${currentCount + 1}</span>
+          <input type="text" class="form-input poll-opt-input navigable focus-compact" placeholder="Opzione ${currentCount + 1}" maxlength="100" required />
+          <button type="button" class="btn-remove-opt navigable focus-compact" title="Rimuovi opzione">✕</button>
+        `;
+
+        const removeBtn = row.querySelector('.btn-remove-opt');
+        if (removeBtn) {
+          removeBtn.addEventListener('click', () => {
+            row.remove();
+            refreshOptionNumbers();
+          });
+        }
+
+        pollOptionsList.appendChild(row);
+        refreshOptionNumbers();
+        const input = row.querySelector('.poll-opt-input');
+        if (input) input.focus();
+      });
+    }
+
+    // Poll Form Submission
+    if (formPoll) {
+      formPoll.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const activeUser = SupabaseService.getActiveUser();
+        if (!activeUser || !activeUser.id) {
+          this.showToast('Accedi con il tuo profilo per creare un sondaggio.');
+          this.showProfileSelectorModal();
+          return;
+        }
+
+        const questionInput = document.getElementById('poll-question-input');
+        const question = questionInput ? questionInput.value.trim() : '';
+        if (!question) {
+          this.showToast('Inserisci la domanda del sondaggio.');
+          return;
+        }
+
+        const typeRadio = formPoll.querySelector('input[name="poll-vote-type"]:checked');
+        const pollType = typeRadio ? typeRadio.value : 'single';
+
+        const optInputs = formPoll.querySelectorAll('.poll-opt-input');
+        const options = Array.from(optInputs).map(i => i.value.trim()).filter(Boolean);
+        if (options.length < 2) {
+          this.showToast('Inserisci almeno 2 opzioni per il sondaggio.');
+          return;
+        }
+
+        const submitBtn = document.getElementById('btn-submit-poll');
+        if (submitBtn) submitBtn.disabled = true;
+
+        try {
+          await SupabaseService.createCommunityPoll({
+            question: question,
+            pollType: pollType,
+            options: options
+          });
+          this.showToast('Sondaggio creato con successo! 📊');
+          if (questionInput) questionInput.value = '';
+          if (pollOptionsList) {
+            pollOptionsList.innerHTML = `
+              <div class="poll-option-row">
+                <span class="option-idx-bullet">1</span>
+                <input type="text" class="form-input poll-opt-input navigable focus-compact" placeholder="Opzione 1" maxlength="100" required />
+              </div>
+              <div class="poll-option-row">
+                <span class="option-idx-bullet">2</span>
+                <input type="text" class="form-input poll-opt-input navigable focus-compact" placeholder="Opzione 2" maxlength="100" required />
+              </div>
+            `;
+            refreshOptionNumbers();
+          }
+          await this.loadCommunitySection();
+        } catch (err) {
+          console.error('[Roxy] Error creating poll:', err);
+          this.showToast(err.message || 'Errore durante la creazione del sondaggio.');
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+
+    // Filter Tabs
+    const filterButtons = document.querySelectorAll('.comm-filter-btn');
+    filterButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        filterButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.currentCommunityFilter = btn.getAttribute('data-filter') || 'all';
+        this.renderCommunityFeed();
+      });
+    });
+
+    // Refresh Button
+    const refreshBtn = document.getElementById('btn-refresh-community');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => {
+        this.loadCommunitySection();
+      });
+    }
+
+    // Voters Modal Close Handlers
+    const votersModal = document.getElementById('poll-voters-modal');
+    const closeVotersBtn = document.getElementById('btn-close-voters-modal');
+    if (closeVotersBtn && votersModal) {
+      closeVotersBtn.addEventListener('click', () => {
+        votersModal.style.display = 'none';
+      });
+    }
+    if (votersModal) {
+      votersModal.addEventListener('click', (e) => {
+        if (e.target === votersModal) {
+          votersModal.style.display = 'none';
+        }
+      });
+    }
+  }
+
+  async loadCommunitySection(isSilent = false) {
+    const feedContainer = document.getElementById('community-feed-container');
+    const filterCountAll = document.getElementById('comm-filter-count-all');
+    if (!feedContainer) return;
+
+    if (!isSilent && (!this.communityEventsList || this.communityEventsList.length === 0)) {
+      feedContainer.innerHTML = '<div class="feedback-loading">Caricamento eventi community...</div>';
+    }
+
+    try {
+      const events = await SupabaseService.getAllCommunityEvents(120);
+      this.communityEventsList = Array.isArray(events) ? events : [];
+      if (filterCountAll) {
+        filterCountAll.textContent = String(this.communityEventsList.length);
+      }
+      this.renderCommunityFeed();
+    } catch (err) {
+      console.error('[Roxy] Error loading community section:', err);
+      if (!isSilent) {
+        feedContainer.innerHTML = '<div class="feedback-empty-state">Errore durante il caricamento della community. Riprova più tardi.</div>';
+      }
+    }
+  }
+
+  renderCommunityFeed() {
+    const feedContainer = document.getElementById('community-feed-container');
+    if (!feedContainer) return;
+
+    const filter = this.currentCommunityFilter || 'all';
+    const items = (this.communityEventsList || []).filter(item => {
+      if (filter === 'all') return true;
+      if (filter === 'posts') return item.feedType === 'post' || item.feedType === 'poll';
+      if (filter === 'reviews') return item.feedType === 'comment' || item.feedType === 'recommendation';
+      if (filter === 'watching') return item.feedType === 'watching';
+      return true;
+    });
+
+    if (items.length === 0) {
+      let emptyMsg = 'Nessun evento presente nella community.';
+      if (filter === 'posts') emptyMsg = 'Nessun post o sondaggio pubblicato finora. Sii il primo a scriverne uno!';
+      if (filter === 'reviews') emptyMsg = 'Nessun commento o recensione su titoli multimediali.';
+      if (filter === 'watching') emptyMsg = 'Nessuna attività di visione recente degli amici.';
+
+      feedContainer.innerHTML = `
+        <div class="feedback-empty-state">
+          <div style="font-size: 2.8rem; margin-bottom: 12px;">👥</div>
+          <div style="font-weight: 700; font-size: 1.15rem; color: #ffffff;">Bacheca vuota</div>
+          <div style="color: var(--text-muted); font-size: 0.95rem; margin-top: 6px;">${emptyMsg}</div>
+        </div>
+      `;
+      return;
+    }
+
+    feedContainer.innerHTML = items.map(item => this.getCommunityEventCardHtml(item)).join('');
+    this.attachCommunityFeedEventHandlers(feedContainer, items);
+  }
+
+  getCommunityEventCardHtml(item) {
+    const timeAgo = this.formatTimeAgo(item.timestamp);
+    const avatarUrl = item.avatar_url || item.avatarUrl;
+    const avatarEmoji = item.avatar_emoji || item.avatarEmoji || '🍿';
+    const avatarHtml = avatarUrl 
+      ? `<img src="${avatarUrl}" alt="${this.escapeHtml(item.username)}" class="comm-user-avatar-img" onerror="this.outerHTML='<span class=\\'comm-user-avatar-emoji\\'>${this.escapeHtml(avatarEmoji)}</span>'" />`
+      : `<span class="comm-user-avatar-emoji">${this.escapeHtml(avatarEmoji)}</span>`;
+
+    // 1. FREE POST
+    if (item.feedType === 'post') {
+      const isPinned = !!item.isPinned;
+      return `
+        <div class="comm-card comm-post-card ${isPinned ? 'is-pinned-card' : ''}" data-id="${item.id}">
+          <div class="comm-card-header">
+            <div class="comm-user-info">
+              ${avatarHtml}
+              <div class="comm-user-meta">
+                <span class="comm-username">${this.escapeHtml(item.username)}</span>
+                <span class="comm-time">${timeAgo}</span>
+              </div>
+            </div>
+            <div class="comm-badge-group">
+              ${isPinned ? '<span class="badge-comm-pinned">📌 Fissato</span>' : ''}
+              <span class="badge-comm-type badge-type-post">💬 Post Libero</span>
+              <button class="btn-pin-community-post navigable focus-compact ${isPinned ? 'is-pinned' : ''}" data-id="${item.id}" data-pinned="${isPinned ? 'true' : 'false'}" title="${isPinned ? 'Stacca post da in alto' : 'Fissa post in alto'}">
+                <span class="pin-icon">📌</span>
+                <span class="pin-text">${isPinned ? 'Stacca' : 'Fissa'}</span>
+              </button>
+              ${item.isOwner ? `
+                <button class="btn-delete-community-post navigable focus-compact" data-id="${item.id}" title="Elimina post">
+                  ✕
+                </button>
+              ` : ''}
+            </div>
+          </div>
+          <div class="comm-card-body post-content-text">
+            ${this.escapeHtml(item.content)}
+          </div>
+        </div>
+      `;
+    }
+
+    // 2. POLL
+    if (item.feedType === 'poll' && item.poll) {
+      const isPinned = !!item.isPinned;
+      const isMultiple = (item.poll.pollType === 'multiple');
+      const typeLabel = isMultiple ? 'Scelta Multipla' : 'Scelta Singola';
+      const totalVotes = item.poll.totalVotes || 0;
+
+      const optionsHtml = item.poll.options.map(opt => {
+        const pct = opt.percentage || 0;
+        const votersCount = opt.votesCount || 0;
+        const hasVoted = !!opt.hasVoted;
+
+        const voterAvatarsHtml = (opt.voters || []).slice(0, 5).map(v => {
+          const vUrl = v.avatar_url || v.avatarUrl;
+          const vEmoji = v.avatar_emoji || v.avatarEmoji || '🍿';
+          return vUrl
+            ? `<img src="${vUrl}" class="poll-mini-avatar" title="${this.escapeHtml(v.username)}" onerror="this.outerHTML='<span class=\\'poll-mini-avatar-emoji\\' title=\\'${this.escapeHtml(v.username)}\\'>${this.escapeHtml(vEmoji)}</span>'" />`
+            : `<span class="poll-mini-avatar-emoji" title="${this.escapeHtml(v.username)}">${this.escapeHtml(vEmoji)}</span>`;
+        }).join('');
+
+        return `
+          <div class="poll-option-card ${hasVoted ? 'voted' : ''}" data-post-id="${item.id}" data-option-id="${opt.id}" data-poll-type="${item.poll.pollType}">
+            <div class="poll-option-progress-bar" style="width: ${pct}%;"></div>
+            <div class="poll-option-inner">
+              <button type="button" class="poll-vote-btn navigable focus-compact" data-post-id="${item.id}" data-option-id="${opt.id}" data-poll-type="${item.poll.pollType}" title="Vota questa opzione">
+                <span class="poll-vote-indicator ${isMultiple ? 'checkbox' : 'radio'} ${hasVoted ? 'checked' : ''}"></span>
+                <span class="poll-option-text">${this.escapeHtml(opt.text)}</span>
+              </button>
+              <div class="poll-option-stats">
+                <div class="poll-voters-strip">
+                  ${voterAvatarsHtml}
+                </div>
+                <button type="button" class="btn-view-voters navigable focus-compact" data-post-id="${item.id}" data-option-id="${opt.id}" title="Visualizza chi ha votato">
+                  <span class="voters-count-text">${votersCount} ${votersCount === 1 ? 'voto' : 'voti'} (${pct}%)</span>
+                  <span class="voters-info-icon">👥</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="comm-card comm-poll-card ${isPinned ? 'is-pinned-card' : ''}" data-id="${item.id}">
+          <div class="comm-card-header">
+            <div class="comm-user-info">
+              ${avatarHtml}
+              <div class="comm-user-meta">
+                <span class="comm-username">${this.escapeHtml(item.username)}</span>
+                <span class="comm-time">${timeAgo}</span>
+              </div>
+            </div>
+            <div class="comm-badge-group">
+              ${isPinned ? '<span class="badge-comm-pinned">📌 Fissato</span>' : ''}
+              <span class="badge-comm-type badge-type-poll">📊 Sondaggio • ${typeLabel}</span>
+              <button class="btn-pin-community-post navigable focus-compact ${isPinned ? 'is-pinned' : ''}" data-id="${item.id}" data-pinned="${isPinned ? 'true' : 'false'}" title="${isPinned ? 'Stacca sondaggio da in alto' : 'Fissa sondaggio in alto'}">
+                <span class="pin-icon">📌</span>
+                <span class="pin-text">${isPinned ? 'Stacca' : 'Fissa'}</span>
+              </button>
+              ${item.isOwner ? `
+                <button class="btn-delete-community-post navigable focus-compact" data-id="${item.id}" title="Elimina sondaggio">
+                  ✕
+                </button>
+              ` : ''}
+            </div>
+          </div>
+          <div class="poll-question-header">
+            <h3 class="poll-question-text">${this.escapeHtml(item.content)}</h3>
+            <span class="poll-total-votes-label">${totalVotes} ${totalVotes === 1 ? 'voto totale' : 'voti totali'}</span>
+          </div>
+          <div class="poll-options-container">
+            ${optionsHtml}
+          </div>
+        </div>
+      `;
+    }
+
+    // 3. MEDIA COMMENT OR RECOMMENDATION
+    if (item.feedType === 'comment' || item.feedType === 'recommendation') {
+      const isRec = (item.feedType === 'recommendation');
+      const isSaturn = (item.source === 'animesaturn' || String(item.mediaId).startsWith('saturn_'));
+      const displayTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
+      const posterUrl = (item.posterPath || item.backdropPath || '');
+      const imgUrl = posterUrl.startsWith('http') ? posterUrl : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w185') : 'assets/icon.png');
+
+      return `
+        <div class="comm-card comm-media-card" data-id="${item.id}">
+          <div class="comm-card-header">
+            <div class="comm-user-info">
+              ${avatarHtml}
+              <div class="comm-user-meta">
+                <span class="comm-username">${this.escapeHtml(item.username)}</span>
+                <span class="comm-time">${timeAgo}</span>
+              </div>
+            </div>
+            <div class="comm-badge-group">
+              <span class="badge-comm-type ${isRec ? 'badge-type-rec' : 'badge-type-comment'}">
+                ${isRec ? '★ Consigliato' : '💬 Recensione'}
+              </span>
+            </div>
+          </div>
+          <div class="comm-media-body">
+            <div class="comm-media-thumb navigable focus-compact" tabindex="0" data-media-id="${item.mediaId}" data-source="${item.source}" data-type="${item.mediaType}" data-title="${this.escapeHtml(item.title)}" data-slug="${item.slug || ''}">
+              <img src="${imgUrl}" alt="${displayTitle}" loading="lazy" />
+              <div class="comm-thumb-overlay">▶</div>
+            </div>
+            <div class="comm-media-text-wrap">
+              <div class="comm-media-title-link navigable" data-media-id="${item.mediaId}" data-source="${item.source}" data-type="${item.mediaType}" data-title="${this.escapeHtml(item.title)}" data-slug="${item.slug || ''}">
+                ${isSaturn ? '🪐 ' : ''}${displayTitle}
+              </div>
+              <div class="comm-media-quote-text">
+                "${this.escapeHtml(item.content || (isRec ? 'Consiglia di vedere assolutamente questo contenuto!' : ''))}"
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // 4. WATCHING ACTIVITY
+    if (item.feedType === 'watching') {
+      const isSaturn = (item.source === 'animesaturn' || String(item.mediaId).startsWith('saturn_'));
+      const displayTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
+      const posterUrl = (item.posterPath || item.backdropPath || '');
+      const imgUrl = posterUrl.startsWith('http') ? posterUrl : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w185') : 'assets/icon.png');
+      const actionBadge = item.watchStatus === 'completed'
+        ? '<span class="badge-comm-type badge-type-completed">✓ Ha Visto</span>'
+        : (item.watchStatus === 'dropped'
+          ? '<span class="badge-comm-type badge-type-dropped">✕ Ha Droppato</span>'
+          : '<span class="badge-comm-type badge-type-watching">👁 Sta Guardando</span>');
+
+      return `
+        <div class="comm-card comm-watching-card" data-id="${item.id}">
+          <div class="comm-card-header">
+            <div class="comm-user-info">
+              ${avatarHtml}
+              <div class="comm-user-meta">
+                <span class="comm-username">${this.escapeHtml(item.username)}</span>
+                <span class="comm-time">${timeAgo}</span>
+              </div>
+            </div>
+            <div class="comm-badge-group">
+              ${actionBadge}
+            </div>
+          </div>
+          <div class="comm-media-body">
+            <div class="comm-media-thumb navigable focus-compact" tabindex="0" data-media-id="${item.mediaId}" data-source="${item.source}" data-type="${item.mediaType}" data-title="${this.escapeHtml(item.title)}" data-slug="${item.slug || ''}">
+              <img src="${imgUrl}" alt="${displayTitle}" loading="lazy" />
+              <div class="comm-thumb-overlay">▶</div>
+            </div>
+            <div class="comm-media-text-wrap">
+              <div class="comm-media-title-link navigable" data-media-id="${item.mediaId}" data-source="${item.source}" data-type="${item.mediaType}" data-title="${this.escapeHtml(item.title)}" data-slug="${item.slug || ''}">
+                ${isSaturn ? '🪐 ' : ''}${displayTitle}
+              </div>
+              <div class="comm-media-quote-text" style="color: var(--text-med);">
+                ${this.escapeHtml(item.content || '')}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    return '';
+  }
+
+  attachCommunityFeedEventHandlers(container, items) {
+    if (!container) return;
+
+    // 1. Voting buttons on poll options
+    container.querySelectorAll('.poll-vote-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const postId = btn.getAttribute('data-post-id');
+        const optionId = btn.getAttribute('data-option-id');
+        const pollType = btn.getAttribute('data-poll-type') || 'single';
+        await this.handlePollVote(postId, optionId, pollType);
+      });
+    });
+
+    // 2. View Voters button on poll options
+    container.querySelectorAll('.btn-view-voters').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const postId = btn.getAttribute('data-post-id');
+        const optionId = btn.getAttribute('data-option-id');
+
+        const post = items.find(p => String(p.id) === String(postId));
+        if (post && post.poll && Array.isArray(post.poll.options)) {
+          const opt = post.poll.options.find(o => String(o.id) === String(optionId));
+          if (opt) {
+            this.openPollVotersModal(post.content, opt.text, opt.voters || []);
+          }
+        }
+      });
+    });
+
+    // Pin / Unpin Community Post or Poll (available to all users)
+    container.querySelectorAll('.btn-pin-community-post').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const postId = btn.getAttribute('data-id');
+        const isCurrentlyPinned = (btn.getAttribute('data-pinned') === 'true');
+        const targetState = !isCurrentlyPinned;
+
+        btn.disabled = true;
+        try {
+          await SupabaseService.togglePinCommunityPost(postId, targetState);
+          this.showToast(targetState ? 'Post fissato in alto! 📌' : 'Post staccato dall\'alto.');
+          await this.loadCommunitySection();
+          if (this.refreshCommunityRowAsync) {
+            this.refreshCommunityRowAsync({ force: true });
+          }
+        } catch (err) {
+          console.error('[Roxy] Error toggling pin state:', err);
+          this.showToast(err.message || 'Errore durante l\'aggiornamento dello stato in alto.');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // 3. Delete Community Post or Poll
+    container.querySelectorAll('.btn-delete-community-post').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const postId = btn.getAttribute('data-id');
+        if (!window.confirm('Sei sicuro di voler eliminare questo elemento dalla community?')) return;
+        btn.disabled = true;
+        try {
+          await SupabaseService.deleteCommunityPost(postId);
+          this.showToast('Elemento eliminato.');
+          await this.loadCommunitySection();
+        } catch (err) {
+          this.showToast(err.message || 'Errore durante l\'eliminazione.');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // 4. Media Thumbnail / Title click to open details modal
+    container.querySelectorAll('[data-media-id]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const mediaId = el.getAttribute('data-media-id');
+        const source = el.getAttribute('data-source');
+        const mediaType = el.getAttribute('data-type');
+        const title = el.getAttribute('data-title');
+        const slug = el.getAttribute('data-slug');
+        if (mediaId) {
+          this.openDetailsModal({
+            id: mediaId,
+            source: source || 'tmdb',
+            media_type: mediaType || 'movie',
+            title: title,
+            name: title,
+            slug: slug
+          });
+        }
+      });
+    });
+  }
+
+  async handlePollVote(postId, optionId, pollType) {
+    const activeUser = SupabaseService.getActiveUser();
+    if (!activeUser || !activeUser.id) {
+      this.showToast('Accedi con il tuo profilo per votare nel sondaggio.');
+      this.showProfileSelectorModal();
+      return;
+    }
+
+    try {
+      const res = await SupabaseService.votePoll(postId, optionId, pollType);
+      if (res && res.voted) {
+        this.showToast('Voto registrato! 📊');
+      } else {
+        this.showToast('Voto rimosso.');
+      }
+      await this.loadCommunitySection(true);
+    } catch (err) {
+      console.error('[Roxy] Error voting in poll:', err);
+      this.showToast(err.message || 'Errore durante la votazione.');
+    }
+  }
+
+  openPollVotersModal(questionText, optionText, voters) {
+    const modal = document.getElementById('poll-voters-modal');
+    const titleEl = document.getElementById('poll-voters-title');
+    const subtitleEl = document.getElementById('poll-voters-subtitle');
+    const listEl = document.getElementById('poll-voters-list');
+    if (!modal || !listEl) return;
+
+    if (titleEl) titleEl.textContent = `Votanti per: "${optionText}"`;
+    if (subtitleEl) subtitleEl.textContent = `Domanda: "${questionText}" • ${voters.length} ${voters.length === 1 ? 'voto' : 'voti'}`;
+
+    if (!voters || voters.length === 0) {
+      listEl.innerHTML = '<div class="voters-empty-state">Nessun utente ha ancora votato per questa opzione.</div>';
+    } else {
+      listEl.innerHTML = voters.map(v => {
+        const avatarUrl = v.avatar_url || v.avatarUrl;
+        const avatarEmoji = v.avatar_emoji || v.avatarEmoji || '🍿';
+        const avatarHtml = avatarUrl
+          ? `<img src="${avatarUrl}" alt="${this.escapeHtml(v.username)}" class="voter-row-avatar-img" onerror="this.outerHTML='<span class=\\'voter-row-avatar-emoji\\'>${this.escapeHtml(avatarEmoji)}</span>'" />`
+          : `<span class="voter-row-avatar-emoji">${this.escapeHtml(avatarEmoji)}</span>`;
+        const timeAgo = this.formatTimeAgo(v.createdAt || v.created_at || Date.now());
+
+        return `
+          <div class="voter-row-item">
+            <div class="voter-row-user">
+              ${avatarHtml}
+              <span class="voter-row-name">${this.escapeHtml(v.username)}</span>
+            </div>
+            <span class="voter-row-time">${timeAgo}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    modal.style.display = 'flex';
+    const closeBtn = document.getElementById('btn-close-voters-modal');
+    if (closeBtn) closeBtn.focus();
   }
 
   // =========================================================================
@@ -3334,9 +4152,11 @@ class RoxyApp {
     const badgeYouEl = document.getElementById('profile-page-badge-you');
     const bioEl = document.getElementById('profile-page-bio');
     const statWatchedEl = document.getElementById('profile-stat-watched');
+    const statWatchlistEl = document.getElementById('profile-stat-watchlist');
     const statRecsEl = document.getElementById('profile-stat-recommended');
     const statCommentsEl = document.getElementById('profile-stat-comments');
     const tabWatchedCount = document.getElementById('tab-count-watched');
+    const tabWatchlistCount = document.getElementById('tab-count-watchlist');
     const tabRecsCount = document.getElementById('tab-count-recommended');
     const tabCommentsCount = document.getElementById('tab-count-comments');
     const ownerActions = document.getElementById('profile-owner-actions');
@@ -3353,7 +4173,7 @@ class RoxyApp {
     }
 
     this.viewedProfileData = data;
-    const { profile, isOwner, watched, recommendations, comments } = data;
+    const { profile, isOwner, watched, watchlist = [], recommendations, comments } = data;
 
     if (usernameEl) usernameEl.textContent = profile.username;
     if (avatarEl) {
@@ -3362,7 +4182,7 @@ class RoxyApp {
         : this.escapeHtml(profile.avatar_emoji || '🍿');
     }
     if (badgeYouEl) badgeYouEl.style.display = isOwner ? 'inline-block' : 'none';
-    if (ownerActions) ownerActions.style.display = isOwner ? 'block' : 'none';
+    if (ownerActions) ownerActions.style.display = isOwner ? 'flex' : 'none';
 
     if (bioEl) {
       bioEl.innerHTML = profile.bio
@@ -3371,93 +4191,70 @@ class RoxyApp {
     }
 
     if (statWatchedEl) statWatchedEl.textContent = watched.length;
+    if (statWatchlistEl) statWatchlistEl.textContent = watchlist.length;
     if (statRecsEl) statRecsEl.textContent = recommendations.length;
     if (statCommentsEl) statCommentsEl.textContent = comments.length;
 
     if (tabWatchedCount) tabWatchedCount.textContent = watched.length;
+    if (tabWatchlistCount) tabWatchlistCount.textContent = watchlist.length;
     if (tabRecsCount) tabRecsCount.textContent = recommendations.length;
     if (tabCommentsCount) tabCommentsCount.textContent = comments.length;
 
-    // Render Watched Titles Grid
+    // Reset profile tabs so 'watched' is active by default
+    document.querySelectorAll('.profile-tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-tab') === 'watched');
+    });
+    document.querySelectorAll('.profile-tab-panel').forEach(panel => {
+      if (panel.id === 'profile-tab-watched') {
+        panel.style.display = 'block';
+        panel.classList.add('active');
+      } else {
+        panel.style.display = 'none';
+        panel.classList.remove('active');
+      }
+    });
+
+    // Render Watched Titles Grid (exact same layout as home)
     const watchedGrid = document.getElementById('profile-watched-grid');
     if (watchedGrid) {
       if (watched.length === 0) {
         watchedGrid.innerHTML = `<div class="empty-state" style="padding: 40px 0;"><div style="font-size: 2.5rem; margin-bottom: 8px;">🎬</div>Nessun titolo completato ${isOwner ? 'nella tua cronologia' : 'da mostrare'}.</div>`;
       } else {
-        watchedGrid.innerHTML = watched.map(item => {
-          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
-          const posterUrl = item.poster_path || item.backdrop_path || '';
-          const imgUrl = posterUrl.startsWith('http') ? posterUrl : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w342') : 'assets/icon.png');
-          const cleanTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
-
-          return `
-            <div class="media-card navigable focus-compact" tabindex="0" data-id="${item.id}" data-type="${item.media_type}" data-source="${item.source || 'tmdb'}" data-slug="${item.slug || ''}">
-              <div class="card-poster-wrap">
-                <img src="${imgUrl}" alt="${this.escapeHtml(cleanTitle)}" class="card-poster" loading="lazy" />
-                <div class="card-play-indicator">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
-                </div>
-                ${item.community_hidden ? '<div class="badge-hidden-private" title="Nascosto alla community">🔒 Nascosto</div>' : ''}
-              </div>
-              <div class="card-meta">
-                <div class="card-title">${isSaturn ? '🪐 ' : ''}${this.escapeHtml(cleanTitle)}</div>
-                <div class="card-sub">${isSaturn ? 'Anime' : (item.media_type === 'tv' ? 'Serie TV' : 'Film')}</div>
-              </div>
-            </div>
-          `;
-        }).join('');
-
-        watchedGrid.querySelectorAll('.media-card').forEach(card => {
-          const rawId = card.getAttribute('data-id');
-          const item = watched.find(i => String(i.id) === String(rawId));
-          if (item) {
-            card.addEventListener('click', () => {
-              this.lastFocusedElement = card;
-              this.openDetailsModal(item);
-            });
-          }
-        });
+        watchedGrid.innerHTML = watched.map(item => this.getMediaCardHtml(item)).join('');
+        this.attachCardClickHandlers(watchedGrid, watched);
       }
     }
 
-    // Render Recommendations List
-    const recsList = document.getElementById('profile-recommended-list');
-    if (recsList) {
-      if (recommendations.length === 0) {
-        recsList.innerHTML = `<div class="empty-state" style="padding: 40px 0;"><div style="font-size: 2.5rem; margin-bottom: 8px;">★</div>Nessun titolo consigliato.</div>`;
+    // Render Watchlist Grid (exact same layout as home)
+    const watchlistGrid = document.getElementById('profile-watchlist-grid');
+    if (watchlistGrid) {
+      if (watchlist.length === 0) {
+        watchlistGrid.innerHTML = `<div class="empty-state" style="padding: 40px 0;"><div style="font-size: 2.5rem; margin-bottom: 8px;">📑</div>Nessun titolo nella lista ${isOwner ? 'personale' : 'da mostrare'}.</div>`;
       } else {
-        recsList.innerHTML = recommendations.map(item => {
-          const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
-          const posterUrl = item.poster_path || item.backdrop_path || '';
-          const imgUrl = posterUrl.startsWith('http') ? posterUrl : (posterUrl ? TMDBService.getPosterUrl(posterUrl, 'w185') : 'assets/icon.png');
-          const cleanTitle = isSaturn ? (window.AnimeSaturnService?.cleanAnimeTitle(item.title) || item.title) : item.title;
-          const timeAgo = this.formatTimeAgo(new Date(item.created_at).getTime());
+        watchlistGrid.innerHTML = watchlist.map(item => this.getMediaCardHtml(item)).join('');
+        this.attachCardClickHandlers(watchlistGrid, watchlist);
+      }
+    }
 
-          return `
-            <div class="profile-rec-card navigable focus-compact" tabindex="0" data-media-id="${item.media_id}" data-source="${item.source || 'tmdb'}" data-media-type="${item.media_type || 'movie'}" data-slug="${item.slug || ''}">
-              <img src="${imgUrl}" alt="${this.escapeHtml(cleanTitle)}" class="profile-item-thumb" loading="lazy" />
-              <div class="profile-item-content">
-                <div class="profile-item-header">
-                  <span class="profile-item-title">${isSaturn ? '🪐 ' : ''}${this.escapeHtml(cleanTitle)}</span>
-                  <span class="profile-item-time">${timeAgo}</span>
-                </div>
-                <div class="badge-rec-star" style="display: inline-flex; margin-bottom: 6px;">★ Consigliato assolutamente</div>
-                ${item.comment_text ? `<div class="profile-item-text">"${this.escapeHtml(item.comment_text)}"</div>` : ''}
-              </div>
-            </div>
-          `;
-        }).join('');
-
-        recsList.querySelectorAll('.profile-rec-card').forEach(card => {
-          card.addEventListener('click', () => {
-            const mId = card.getAttribute('data-media-id');
-            const source = card.getAttribute('data-source');
-            const mediaType = card.getAttribute('data-media-type');
-            const slug = card.getAttribute('data-slug');
-            this.lastFocusedElement = card;
-            this.openDetailsModal({ id: mId, source, media_type: mediaType, slug });
-          });
-        });
+    // Render Recommendations Grid (exact same layout as home with star in top-left)
+    const recsGrid = document.getElementById('profile-recommended-grid');
+    if (recsGrid) {
+      if (recommendations.length === 0) {
+        recsGrid.innerHTML = `<div class="empty-state" style="padding: 40px 0;"><div style="font-size: 2.5rem; margin-bottom: 8px;">★</div>Nessun titolo consigliato.</div>`;
+      } else {
+        const normRecs = recommendations.map(item => ({
+          id: item.media_id || item.id,
+          media_id: item.media_id || item.id,
+          source: item.source || 'tmdb',
+          media_type: item.media_type || 'movie',
+          title: item.title,
+          poster_path: item.poster_path,
+          vote_average: item.vote_average || 8.0,
+          release_date: item.release_date || '',
+          slug: item.slug
+        }));
+        recsGrid.innerHTML = normRecs.map(item => this.getMediaCardHtml(item, { isRecommended: true })).join('');
+        this.attachCardClickHandlers(recsGrid, normRecs);
       }
     }
 
@@ -3647,14 +4444,15 @@ class RoxyApp {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
         try {
-          const compressed = await this.compressAvatarImage(file);
+          const compressed = await SupabaseService.compressImage(file, 256, 0.82);
           this.profileEditPhotoData = compressed;
           if (photoPreview) {
-            photoPreview.innerHTML = `<img src="${compressed}" class="photo-preview-img" alt="Preview" />`;
+            photoPreview.innerHTML = `<img src="${compressed.dataUrl}" class="photo-preview-img" alt="Preview" />`;
           }
           if (btnRemovePhoto) btnRemovePhoto.style.display = 'inline-block';
         } catch (err) {
-          this.showToast('Errore nel caricamento della foto.');
+          console.error('[Roxy] Errore caricamento foto profilo:', err);
+          this.showToast(err.message || 'Errore nel caricamento della foto.');
         }
       });
     }
@@ -3726,19 +4524,23 @@ class RoxyApp {
         if (newPin) updates.pin = newPin;
 
         if (this.profileEditAvatarType === 'photo' && this.profileEditPhotoData) {
-          if (this.profileEditPhotoData.startsWith('data:')) {
-            try {
-              const uploadedUrl = await SupabaseService.uploadAvatarPhoto(user.id, this.profileEditPhotoData);
+          try {
+            if (this.profileEditPhotoData.blob) {
+              const uploadedUrl = await SupabaseService.uploadAvatar(this.profileEditPhotoData.blob, this.profileEditPhotoData.fileExt || 'webp', user.id);
               updates.avatar_url = uploadedUrl;
-            } catch (err) {
-              if (errorMsg) {
-                errorMsg.textContent = 'Caricamento foto fallito, riprova.';
-                errorMsg.style.display = 'block';
-              }
-              return;
+            } else if (typeof this.profileEditPhotoData === 'string' && this.profileEditPhotoData.startsWith('data:')) {
+              const uploadedUrl = await SupabaseService.uploadAvatar(this.profileEditPhotoData, 'webp', user.id);
+              updates.avatar_url = uploadedUrl;
+            } else if (typeof this.profileEditPhotoData === 'string') {
+              updates.avatar_url = this.profileEditPhotoData;
             }
-          } else {
-            updates.avatar_url = this.profileEditPhotoData;
+          } catch (err) {
+            console.error('[Roxy] Errore upload avatar profilo:', err);
+            if (errorMsg) {
+              errorMsg.textContent = 'Caricamento foto fallito, riprova.';
+              errorMsg.style.display = 'block';
+            }
+            return;
           }
         } else {
           updates.avatar_url = null;

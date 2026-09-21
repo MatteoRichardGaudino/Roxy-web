@@ -33,6 +33,13 @@ const PlayerController = {
     this.timePreviewEl = document.getElementById('osd-time-preview');
     this.loadingCurtain = document.getElementById('player-loading-curtain');
     this.loadingTitle = document.getElementById('player-loading-title');
+    this.btnVolume = document.getElementById('osd-btn-volume');
+    this.volumeSlider = document.getElementById('osd-volume-slider');
+    this.iconVolHigh = document.getElementById('osd-icon-vol-high');
+    this.iconVolMute = document.getElementById('osd-icon-vol-mute');
+    this.currentVolume = 1;
+    this.prevUnmutedVolume = 1;
+    this.isMuted = false;
 
     this.bindEvents();
 
@@ -198,6 +205,12 @@ const PlayerController = {
     } else if (eventName === 'ended') {
       this.isPlaying = false;
       this.onEnded();
+    } else if (eventName === 'volumechange') {
+      if (typeof payload.volume === 'number') {
+        this.currentVolume = payload.volume;
+        this.isMuted = !!payload.muted || (payload.volume === 0);
+        this.updateVolumeUI();
+      }
     } else if (eventName === 'timeupdate' || eventName === 'time' || eventName === 'roxy_playback_progress' || (currTime !== null && !['play', 'pause', 'seeked', 'seek', 'ended'].includes(eventName))) {
       const now = Date.now();
       if (!this.lastProgressSave || (now - this.lastProgressSave > 3000)) {
@@ -265,6 +278,24 @@ const PlayerController = {
       btnFullscreen.addEventListener('click', () => this.toggleFullscreen());
     }
 
+    if (this.btnVolume) {
+      this.btnVolume.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleMute();
+      });
+    }
+
+    if (this.volumeSlider) {
+      this.volumeSlider.addEventListener('input', (e) => {
+        e.stopPropagation();
+        this.setVolume(parseFloat(e.target.value));
+      });
+      this.volumeSlider.addEventListener('change', (e) => {
+        e.stopPropagation();
+        this.setVolume(parseFloat(e.target.value));
+      });
+    }
+
     if (this.btnPrevEp) {
       this.btnPrevEp.addEventListener('click', () => this.playPrevEpisode());
     }
@@ -284,13 +315,20 @@ const PlayerController = {
     // Interactive timeline seeking on click, touch or drag & hover time preview
     if (this.progressTrack) {
       const handleSeek = (e) => {
-        if (!this.videoEl || !this.videoEl.duration) return;
         const rect = this.progressTrack.getBoundingClientRect();
         const clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX : (e.clientX || 0);
         const clickX = clientX - rect.left;
         const ratio = Math.max(0, Math.min(1, clickX / rect.width));
-        this.videoEl.currentTime = ratio * this.videoEl.duration;
-        this.onTimeUpdate();
+
+        if (this.videoEl && this.videoEl.style.display !== 'none' && this.videoEl.duration) {
+          this.videoEl.currentTime = ratio * this.videoEl.duration;
+          this.onTimeUpdate();
+        } else if (this.iframeEl && this.iframeEl.contentWindow && this.estimatedDuration > 0) {
+          const targetTime = Math.round(ratio * this.estimatedDuration);
+          this.currentSessionTime = targetTime;
+          this.iframeEl.contentWindow.postMessage({ type: 'ROXY_CMD', action: 'set_time', time: targetTime }, '*');
+          this.updateProgressDisplay(targetTime, this.estimatedDuration);
+        }
         this.showOSD();
       };
 
@@ -310,10 +348,13 @@ const PlayerController = {
       }, { passive: true });
 
       this.progressTrack.addEventListener('mousemove', (e) => {
-        if (!this.videoEl || !this.videoEl.duration || !this.timePreviewEl) return;
+        const duration = (this.videoEl && this.videoEl.style.display !== 'none' && this.videoEl.duration)
+          ? this.videoEl.duration
+          : (this.estimatedDuration || 0);
+        if (!duration || !this.timePreviewEl) return;
         const rect = this.progressTrack.getBoundingClientRect();
         const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-        const hoverTime = ratio * this.videoEl.duration;
+        const hoverTime = ratio * duration;
         this.timePreviewEl.textContent = this.formatTime(hoverTime);
         this.timePreviewEl.style.left = `${(ratio * 100).toFixed(1)}%`;
         this.timePreviewEl.style.display = 'block';
@@ -775,7 +816,37 @@ const PlayerController = {
           v.addEventListener('ended', function() {
             window.parent.postMessage({ type: 'PLAYER_EVENT', data: { event: 'ended' } }, '*');
           });
+
+          v.addEventListener('volumechange', function() {
+            window.parent.postMessage({
+              type: 'PLAYER_EVENT',
+              data: { event: 'volumechange', volume: v.muted ? 0 : v.volume, muted: v.muted }
+            }, '*');
+          });
         }
+
+        window.addEventListener('message', function(e) {
+          if (!e.data || e.data.type !== 'ROXY_CMD') return;
+          const v = document.querySelector('video');
+          if (!v) return;
+          if (e.data.action === 'set_volume') {
+            const vol = Math.max(0, Math.min(1, Number(e.data.volume)));
+            v.volume = vol;
+            v.muted = (vol === 0);
+          } else if (e.data.action === 'toggle_mute') {
+            v.muted = !v.muted;
+          } else if (e.data.action === 'toggle_play') {
+            if (v.paused) v.play(); else v.pause();
+          } else if (e.data.action === 'play') {
+            v.play();
+          } else if (e.data.action === 'pause') {
+            v.pause();
+          } else if (e.data.action === 'seek') {
+            v.currentTime = Math.max(0, Math.min(v.duration || Infinity, v.currentTime + (e.data.seconds || 0)));
+          } else if (e.data.action === 'set_time') {
+            v.currentTime = Math.max(0, Math.min(v.duration || Infinity, Number(e.data.time || 0)));
+          }
+        });
 
         document.addEventListener('keydown', function(e) {
           const v = document.querySelector('video');
@@ -1256,6 +1327,11 @@ const PlayerController = {
     if (window.App && window.App.renderContinueWatchingRow) {
       window.App.renderContinueWatchingRow();
     }
+
+    // Refresh home community row asynchronously
+    if (window.App && window.App.refreshCommunityRowAsync) {
+      window.App.refreshCommunityRowAsync({ force: true });
+    }
   },
 
   pause() {
@@ -1361,10 +1437,18 @@ const PlayerController = {
     this.updatePlayBtnIcon();
 
     if (this.nextEpisodeInfo) {
-      console.log('[Roxy Player] Stream ended, presenting next episode prompt');
+      console.log('[Roxy Player] Stream ended, auto-advancing to next episode:', this.nextEpisodeInfo);
       this.isNextPromptDismissed = false;
       this.showNextEpisodePrompt();
       this.showOSD();
+      if (window.App && window.App.showToast) {
+        window.App.showToast('Avvio prossimo episodio in corso... 🍿');
+      }
+      setTimeout(() => {
+        if (this.isActive && this.nextEpisodeInfo) {
+          this.playNextEpisode();
+        }
+      }, 1800);
       return;
     }
 
@@ -1378,6 +1462,48 @@ const PlayerController = {
       );
     }
     this.showOSD();
+  },
+
+  setVolume(val) {
+    const clamped = Math.max(0, Math.min(1, val));
+    this.currentVolume = clamped;
+    this.isMuted = (clamped === 0);
+
+    if (this.videoEl && this.videoEl.style.display !== 'none') {
+      this.videoEl.volume = clamped;
+      this.videoEl.muted = this.isMuted;
+    }
+
+    if (this.iframeEl && this.iframeEl.contentWindow) {
+      this.iframeEl.contentWindow.postMessage({
+        type: 'ROXY_CMD',
+        action: 'set_volume',
+        volume: clamped
+      }, '*');
+    }
+
+    this.updateVolumeUI();
+  },
+
+  toggleMute() {
+    if (this.isMuted || this.currentVolume === 0) {
+      const restored = (this.prevUnmutedVolume && this.prevUnmutedVolume > 0) ? this.prevUnmutedVolume : 0.8;
+      this.setVolume(restored);
+    } else {
+      this.prevUnmutedVolume = this.currentVolume;
+      this.setVolume(0);
+    }
+  },
+
+  updateVolumeUI() {
+    if (this.volumeSlider) {
+      this.volumeSlider.value = this.currentVolume;
+    }
+    if (this.iconVolHigh && this.iconVolMute) {
+      const isZero = (this.isMuted || this.currentVolume <= 0.01);
+      this.iconVolHigh.style.display = isZero ? 'none' : 'block';
+      this.iconVolMute.style.display = isZero ? 'block' : 'none';
+    }
   },
 
   // =========================================================================
@@ -1411,7 +1537,12 @@ const PlayerController = {
     let displayTitle = baseTitle;
     if (isSaturn) {
       const epNum = Number(item.episode) || 1;
-      const subLabel = item.isDub ? 'DUB ITA' : 'SUB ITA';
+      const isDub = item.isDub === true || (
+        typeof AnimeSaturnService !== 'undefined' && typeof AnimeSaturnService.isDubAnime === 'function'
+          ? AnimeSaturnService.isDubAnime(item.title || item.name, item.slug || item.id)
+          : (String(item.id || '').includes('-ita-') || String(item.title || '').includes('(ITA)'))
+      );
+      const subLabel = isDub ? 'DUB ITA' : 'SUB ITA';
       displayTitle = `🪐 ${baseTitle} - Ep. ${epNum} (${subLabel})`;
       if (item.episode_name && item.episode_name.trim() && !item.episode_name.startsWith('Episodio')) {
         displayTitle += ` "${item.episode_name.trim()}"`;
@@ -1805,29 +1936,23 @@ const PlayerController = {
       return true;
     }
 
-    // 5. Up Arrow (Volume +10% on native video or show OSD)
+    // 5. Up Arrow (Volume +10%)
     if (code === CONFIG.KEYS.UP || (e && e.key === 'ArrowUp')) {
-      if (this.videoEl && this.videoEl.style.display !== 'none') {
-        this.videoEl.volume = Math.min(1, this.videoEl.volume + 0.1);
-      }
+      this.setVolume(this.currentVolume + 0.1);
       this.showOSD();
       return true;
     }
 
-    // 6. Down Arrow (Volume -10% on native video or show OSD)
+    // 6. Down Arrow (Volume -10%)
     if (code === CONFIG.KEYS.DOWN || (e && e.key === 'ArrowDown')) {
-      if (this.videoEl && this.videoEl.style.display !== 'none') {
-        this.videoEl.volume = Math.max(0, this.videoEl.volume - 0.1);
-      }
+      this.setVolume(this.currentVolume - 0.1);
       this.showOSD();
       return true;
     }
 
     // 7. Toggle Mute on 'M' key (77)
     if (code === 77 || (e && (e.key === 'm' || e.key === 'M'))) {
-      if (this.videoEl && this.videoEl.style.display !== 'none') {
-        this.videoEl.muted = !this.videoEl.muted;
-      }
+      this.toggleMute();
       this.showOSD();
       return true;
     }
