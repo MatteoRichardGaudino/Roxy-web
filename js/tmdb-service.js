@@ -242,15 +242,114 @@ const TMDBService = {
     }
   },
 
-  // Search Multi (Movies & TV Series)
+  // In-memory cache for genre discoveries
+  _discoverCache: new Map(),
+
+  // Discover by Multiple Genres (simultaneous filters) with caching and released filter
+  async discoverByMultipleGenres(movieGenreIds = [], tvGenreIds = [], mediaType = 'all', page = 1) {
+    const today = this.getTodayDate();
+    const movieGStr = (movieGenreIds || []).slice().sort().join(',');
+    const tvGStr = (tvGenreIds || []).slice().sort().join(',');
+    const cacheKey = `${mediaType}:${movieGStr}:${tvGStr}:${page}`;
+
+    if (this._discoverCache.has(cacheKey)) {
+      return this._discoverCache.get(cacheKey);
+    }
+
+    const promises = [];
+
+    // Movie discovery
+    if ((mediaType === 'all' || mediaType === 'movie') && movieGenreIds && movieGenreIds.length > 0) {
+      const gParam = movieGenreIds.join(',');
+      promises.push(
+        this.fetchTMDB('/discover/movie', {
+          with_genres: gParam,
+          with_release_type: '4|5',
+          'release_date.lte': today,
+          'vote_count.gte': 15,
+          sort_by: 'popularity.desc',
+          page: page * 2 - 1
+        }).then(res => (res.results || []).map(i => ({ ...i, media_type: 'movie' })))
+      );
+      promises.push(
+        this.fetchTMDB('/discover/movie', {
+          with_genres: gParam,
+          with_release_type: '4|5',
+          'release_date.lte': today,
+          'vote_count.gte': 15,
+          sort_by: 'popularity.desc',
+          page: page * 2
+        }).then(res => (res.results || []).map(i => ({ ...i, media_type: 'movie' })))
+      );
+    }
+
+    // TV Series discovery
+    if ((mediaType === 'all' || mediaType === 'tv') && tvGenreIds && tvGenreIds.length > 0) {
+      const gParam = tvGenreIds.join(',');
+      promises.push(
+        this.fetchTMDB('/discover/tv', {
+          with_genres: gParam,
+          'first_air_date.lte': today,
+          'vote_count.gte': 10,
+          sort_by: 'popularity.desc',
+          page: page * 2 - 1
+        }).then(res => (res.results || []).map(i => ({ ...i, media_type: 'tv' })))
+      );
+      promises.push(
+        this.fetchTMDB('/discover/tv', {
+          with_genres: gParam,
+          'first_air_date.lte': today,
+          'vote_count.gte': 10,
+          sort_by: 'popularity.desc',
+          page: page * 2
+        }).then(res => (res.results || []).map(i => ({ ...i, media_type: 'tv' })))
+      );
+    }
+
+    const fetchedArrays = await Promise.all(promises);
+    const combined = fetchedArrays.flat();
+
+    const seen = new Set();
+    const results = combined.filter(item => {
+      if (!item || !item.id || !item.poster_path || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+
+    results.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+
+    // Maintain cache bounded to 80 entries
+    if (this._discoverCache.size > 80) {
+      const oldestKey = this._discoverCache.keys().next().value;
+      this._discoverCache.delete(oldestKey);
+    }
+    this._discoverCache.set(cacheKey, results);
+
+    return results;
+  },
+
+  // Search Multi (Movies & TV Series) with 2 TMDB pages per pagination batch
   async search(query, page = 1) {
     if (!query || query.trim().length === 0) return [];
-    const data = await this.fetchTMDB('/search/multi', {
-      query: encodeURIComponent(query),
-      page,
-      include_adult: false
+    const [p1, p2] = await Promise.all([
+      this.fetchTMDB('/search/multi', {
+        query: encodeURIComponent(query),
+        page: page * 2 - 1,
+        include_adult: false
+      }),
+      this.fetchTMDB('/search/multi', {
+        query: encodeURIComponent(query),
+        page: page * 2,
+        include_adult: false
+      })
+    ]);
+    const raw = [...(p1.results || []), ...(p2.results || [])];
+    const seen = new Set();
+    return raw.filter(item => {
+      if (!item || !item.id || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return (item.media_type === 'movie' || item.media_type === 'tv') && item.poster_path;
     });
-    return (data.results || []).filter(item => (item.media_type === 'movie' || item.media_type === 'tv') && item.poster_path);
   },
 
   // Get Content Details with Videos, Credits & Similar

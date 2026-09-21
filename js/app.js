@@ -2,6 +2,23 @@
  * Roxy - Main Application Controller
  * Handles UI views, TMDB catalog loading, Netflix-style billboard & rows, and modals
  */
+const SEARCH_GENRES = [
+  { id: 'action', name: 'Azione', emoji: '💥', movieGenre: 28, tvGenre: 10759 },
+  { id: 'adventure', name: 'Avventura', emoji: '🗺️', movieGenre: 12, tvGenre: 10759 },
+  { id: 'animation', name: 'Animazione', emoji: '🎨', movieGenre: 16, tvGenre: 16 },
+  { id: 'comedy', name: 'Commedia', emoji: '😂', movieGenre: 35, tvGenre: 35 },
+  { id: 'crime', name: 'Crime', emoji: '🕵️‍♂️', movieGenre: 80, tvGenre: 80 },
+  { id: 'documentary', name: 'Documentario', emoji: '🌍', movieGenre: 99, tvGenre: 99 },
+  { id: 'drama', name: 'Drammatico', emoji: '🎭', movieGenre: 18, tvGenre: 18 },
+  { id: 'family', name: 'Per famiglie', emoji: '👨‍👩‍👧', movieGenre: 10751, tvGenre: 10751 },
+  { id: 'fantasy', name: 'Fantasy', emoji: '🧙‍♂️', movieGenre: 14, tvGenre: 10765 },
+  { id: 'horror', name: 'Horror', emoji: '👻', movieGenre: 27, tvGenre: 9648 },
+  { id: 'mystery', name: 'Mistero', emoji: '🔎', movieGenre: 9648, tvGenre: 9648 },
+  { id: 'romance', name: 'Romantico', emoji: '❤️', movieGenre: 10749, tvGenre: 10749 },
+  { id: 'scifi', name: 'Fantascienza', emoji: '🚀', movieGenre: 878, tvGenre: 10765 },
+  { id: 'thriller', name: 'Thriller', emoji: '🔪', movieGenre: 53, tvGenre: 9648 }
+];
+
 class RoxyApp {
   constructor() {
     this.currentSection = 'home';
@@ -11,6 +28,14 @@ class RoxyApp {
     this.lastFocusedElement = null;
     this.searchDebounceTimer = null;
     this.searchRequestId = 0;
+    this.searchTypeFilter = 'all';
+    this.selectedSearchGenres = new Set();
+    this.searchCurrentPage = 1;
+    this.searchHasMore = false;
+    this.searchIsLoadingMore = false;
+    this.searchCurrentQuery = '';
+    this.searchCurrentResults = [];
+    this.searchObserver = null;
 
     this.init();
   }
@@ -1190,6 +1215,9 @@ class RoxyApp {
     if (!modal) return;
 
     this.lastFocusedElement = document.activeElement;
+    modal.scrollTop = 0;
+    const modalScrollArea = modal.querySelector('.modal-body-content') || modal.querySelector('.modal-content');
+    if (modalScrollArea) modalScrollArea.scrollTop = 0;
 
     const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_'));
     
@@ -1585,6 +1613,47 @@ class RoxyApp {
       } else {
         episodesContainer.style.display = 'none';
         episodesContainer.innerHTML = '';
+      }
+    }
+
+    // Similar Titles Section ("Simile a...")
+    const similarContainer = document.getElementById('modal-similar-container');
+    const similarCarousel = document.getElementById('carousel-modal-similar');
+    const similarCountBadge = document.getElementById('modal-similar-count');
+
+    if (similarContainer && similarCarousel) {
+      let similarItems = [];
+      if (isSaturn) {
+        try {
+          const latestAnime = await AnimeSaturnService.getLatestAnime();
+          similarItems = (latestAnime || []).filter(a => String(a.id) !== String(data.id)).slice(0, 16);
+        } catch (e) {
+          console.warn('[Roxy] Failed to get similar anime:', e);
+        }
+      } else {
+        const rawSimilar = [
+          ...(data.recommendations?.results || []),
+          ...(data.similar?.results || [])
+        ];
+        const seenSim = new Set([String(data.id)]);
+        similarItems = rawSimilar.filter(s => {
+          if (!s || !s.id || !s.poster_path || seenSim.has(String(s.id))) return false;
+          seenSim.add(String(s.id));
+          return true;
+        }).map(s => ({
+          ...s,
+          media_type: s.media_type || data.media_type || (s.name && !s.title ? 'tv' : 'movie')
+        })).slice(0, 18);
+      }
+
+      if (similarItems.length > 0) {
+        similarContainer.style.display = 'block';
+        if (similarCountBadge) similarCountBadge.textContent = String(similarItems.length);
+        similarCarousel.innerHTML = similarItems.map(s => this.getMediaCardHtml(s)).join('');
+        this.attachCardClickHandlers(similarCarousel, similarItems);
+      } else {
+        similarContainer.style.display = 'none';
+        similarCarousel.innerHTML = '';
       }
     }
 
@@ -2889,12 +2958,85 @@ class RoxyApp {
   }
 
   // =========================================================================
-  // Search View (Unified TMDB + AnimeSaturn Search with DUB Priority)
+  // Search View (Unified TMDB + AnimeSaturn Search with Filters & Nameless Exploration)
   // =========================================================================
   bindSearchEvents() {
     const wrapper = document.querySelector('.search-input-wrapper');
     const searchInput = document.getElementById('search-input');
+    const clearBtn = document.getElementById('search-clear-btn');
+    const clearFiltersBtn = document.getElementById('btn-clear-search-filters');
+    const genreChipsContainer = document.getElementById('search-genre-chips');
+    const typePills = document.querySelectorAll('.search-type-pill');
+
     if (!searchInput) return;
+
+    // Render genre chips if empty
+    if (genreChipsContainer && genreChipsContainer.children.length === 0) {
+      genreChipsContainer.innerHTML = SEARCH_GENRES.map(g => `
+        <button type="button" class="genre-chip navigable focus-compact" data-genre-id="${g.id}">
+          <span class="genre-chip-icon">${g.emoji}</span>
+          <span class="genre-chip-name">${g.name}</span>
+          <span class="genre-chip-check">✓</span>
+        </button>
+      `).join('');
+
+      // Click listener for genre chips
+      genreChipsContainer.querySelectorAll('.genre-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const gid = chip.getAttribute('data-genre-id');
+          if (this.selectedSearchGenres.has(gid)) {
+            this.selectedSearchGenres.delete(gid);
+            chip.classList.remove('active');
+          } else {
+            this.selectedSearchGenres.add(gid);
+            chip.classList.add('active');
+          }
+          this.updateSearchFilterButtonsState();
+          this.performSearch(searchInput.value);
+        });
+      });
+    }
+
+    // Type pills listener
+    typePills.forEach(pill => {
+      pill.addEventListener('click', () => {
+        typePills.forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        this.searchTypeFilter = pill.getAttribute('data-type') || 'all';
+        this.updateSearchFilterButtonsState();
+        this.performSearch(searchInput.value);
+      });
+    });
+
+    // Clear filters button
+    if (clearFiltersBtn) {
+      clearFiltersBtn.addEventListener('click', () => {
+        this.selectedSearchGenres.clear();
+        this.searchTypeFilter = 'all';
+
+        typePills.forEach(p => {
+          if (p.getAttribute('data-type') === 'all') p.classList.add('active');
+          else p.classList.remove('active');
+        });
+
+        if (genreChipsContainer) {
+          genreChipsContainer.querySelectorAll('.genre-chip').forEach(c => c.classList.remove('active'));
+        }
+
+        clearFiltersBtn.style.display = 'none';
+        this.performSearch(searchInput.value);
+      });
+    }
+
+    // Clear text input button
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        clearBtn.style.display = 'none';
+        this.performSearch('');
+        searchInput.focus();
+      });
+    }
 
     if (wrapper) {
       wrapper.addEventListener('click', () => {
@@ -2918,9 +3060,70 @@ class RoxyApp {
 
     searchInput.addEventListener('input', (e) => {
       const query = e.target.value;
+      if (clearBtn) {
+        clearBtn.style.display = query ? 'block' : 'none';
+      }
       if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
-      this.searchDebounceTimer = setTimeout(() => this.performSearch(query), 400);
+      this.searchDebounceTimer = setTimeout(() => this.performSearch(query), 350);
     });
+
+    // Set up Infinite Scroll Sentinel & Load More button
+    const sentinel = document.getElementById('search-scroll-sentinel');
+    const loadMoreBtn = document.getElementById('btn-search-load-more');
+    const viewContainer = document.querySelector('.view-container');
+
+    if (sentinel && window.IntersectionObserver) {
+      if (this.searchObserver) {
+        this.searchObserver.disconnect();
+      }
+      this.searchObserver = new IntersectionObserver((entries) => {
+        const entry = entries[0];
+        if (entry && entry.isIntersecting) {
+          if (this.searchHasMore && !this.searchIsLoadingMore) {
+            this.loadMoreSearchResults();
+          }
+        }
+      }, {
+        root: viewContainer || null,
+        rootMargin: '350px',
+        threshold: 0.05
+      });
+      this.searchObserver.observe(sentinel);
+    }
+
+    // Throttled scroll listener as backup for smart TVs & webOS
+    if (viewContainer && !viewContainer._hasSearchScrollListener) {
+      viewContainer._hasSearchScrollListener = true;
+      viewContainer.addEventListener('scroll', () => {
+        if (this.currentSection !== 'search') return;
+        if (!this.searchHasMore || this.searchIsLoadingMore) return;
+        const dist = viewContainer.scrollHeight - (viewContainer.scrollTop + viewContainer.clientHeight);
+        if (dist < 400) {
+          this.loadMoreSearchResults();
+        }
+      }, { passive: true });
+    }
+
+    if (loadMoreBtn) {
+      loadMoreBtn.addEventListener('click', () => {
+        if (this.searchHasMore && !this.searchIsLoadingMore) {
+          this.loadMoreSearchResults();
+        }
+      });
+      loadMoreBtn.addEventListener('focus', () => {
+        if (this.searchHasMore && !this.searchIsLoadingMore) {
+          this.loadMoreSearchResults();
+        }
+      });
+    }
+  }
+
+  updateSearchFilterButtonsState() {
+    const clearFiltersBtn = document.getElementById('btn-clear-search-filters');
+    if (!clearFiltersBtn) return;
+    const hasActiveFilters = (this.selectedSearchGenres && this.selectedSearchGenres.size > 0) ||
+                             (this.searchTypeFilter && this.searchTypeFilter !== 'all');
+    clearFiltersBtn.style.display = hasActiveFilters ? 'inline-flex' : 'none';
   }
 
   async performSearch(query) {
@@ -2928,29 +3131,149 @@ class RoxyApp {
     if (!grid) return;
 
     const trimmed = (query || '').trim();
-    if (!trimmed) {
-      grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.2rem; grid-column: 1/-1;">Inizia a digitare per cercare tra film, serie TV e anime...</div>`;
+    const hasGenres = this.selectedSearchGenres && this.selectedSearchGenres.size > 0;
+    const activeType = this.searchTypeFilter || 'all';
+
+    // Reset pagination state
+    this.searchCurrentQuery = trimmed;
+    this.searchCurrentPage = 1;
+    this.searchCurrentResults = [];
+    this.searchHasMore = false;
+    this.searchIsLoadingMore = false;
+
+    const loadMoreContainer = document.getElementById('search-load-more-container');
+    if (loadMoreContainer) loadMoreContainer.style.display = 'none';
+
+    // 1. Neither query text nor genres selected -> Show initial prompt
+    if (!trimmed && !hasGenres) {
+      grid.innerHTML = `
+        <div class="search-hint">
+          <div class="hint-icon">🔍</div>
+          <p>Digita un titolo oppure seleziona uno o più generi per esplorare il catalogo.</p>
+        </div>
+      `;
       return;
     }
 
     const currentSearchId = ++this.searchRequestId;
-    grid.innerHTML = `<div style="color: var(--primary-indigo-light); font-size: 1.2rem; grid-column: 1/-1;">Ricerca in corso per "${trimmed}"...</div>`;
+
+    // 2. NAMELESS CATALOG EXPLORATION (no query text, but genres selected)
+    if (!trimmed && hasGenres) {
+      if (activeType === 'anime') {
+        grid.innerHTML = `
+          <div class="search-hint" style="grid-column: 1/-1; padding: 40px 20px; text-align: center;">
+            <div class="hint-icon">🪐</div>
+            <p style="font-size: 1.15rem; color: #ffffff; margin-bottom: 8px;">Esplorazione per genere non supportata per gli Anime senza testo.</p>
+            <p style="font-size: 0.95rem; color: var(--text-muted);">Digita il nome di un anime nella barra di ricerca in alto, oppure seleziona "Tutti", "Film" o "Serie TV".</p>
+          </div>
+        `;
+        return;
+      }
+
+      const selectedGenreDefs = SEARCH_GENRES.filter(g => this.selectedSearchGenres.has(g.id));
+      const genreNames = selectedGenreDefs.map(g => g.name).join(' + ');
+      const movieGenreIds = selectedGenreDefs.map(g => g.movieGenre).filter(Boolean);
+      const tvGenreIds = selectedGenreDefs.map(g => g.tvGenre).filter(Boolean);
+
+      grid.innerHTML = `
+        <div style="color: var(--primary-indigo-light); font-size: 1.2rem; grid-column: 1/-1; padding: 30px 0; text-align: center;">
+          <span style="display: inline-block; animation: spin 1s linear infinite; margin-right: 8px;">⏳</span>
+          Esplorazione catalogo per generi: <strong>${this.escapeHtml(genreNames)}</strong>...
+        </div>
+      `;
+
+      try {
+        const discoverResults = await TMDBService.discoverByMultipleGenres(
+          movieGenreIds,
+          tvGenreIds,
+          activeType,
+          1
+        );
+
+        if (this.searchRequestId !== currentSearchId) return;
+
+        if (!discoverResults || discoverResults.length === 0) {
+          grid.innerHTML = `
+            <div class="search-hint" style="grid-column: 1/-1; padding: 40px 20px; text-align: center;">
+              <div class="hint-icon">🎭</div>
+              <p style="font-size: 1.15rem; color: #ffffff; margin-bottom: 8px;">Nessun titolo trovato con questa combinazione di generi (${this.escapeHtml(genreNames)}).</p>
+              <p style="font-size: 0.95rem; color: var(--text-muted);">Prova a deselezionare qualche genere o prova con "Tutti".</p>
+            </div>
+          `;
+          return;
+        }
+
+        // Prioritize available titles on VixSrc, then by popularity
+        const sortedResults = [...discoverResults].sort((a, b) => {
+          const aAvail = CatalogService.isItemAvailable(a) ? 1 : 0;
+          const bAvail = CatalogService.isItemAvailable(b) ? 1 : 0;
+          if (aAvail !== bAvail) return bAvail - aAvail;
+          return (b.popularity || 0) - (a.popularity || 0);
+        });
+
+        this.searchCurrentResults = [...sortedResults];
+        this.searchHasMore = discoverResults.length >= 10;
+
+        grid.innerHTML = sortedResults.map(item => this.getMediaCardHtml(item)).join('');
+        this.attachCardClickHandlers(grid, sortedResults);
+
+        if (loadMoreContainer) {
+          loadMoreContainer.style.display = this.searchHasMore ? 'flex' : 'none';
+        }
+      } catch (err) {
+        if (this.searchRequestId !== currentSearchId) return;
+        console.error('[Roxy] Error in discoverByMultipleGenres:', err);
+        grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.1rem; grid-column: 1/-1; text-align: center; padding: 40px;">Si è verificato un errore durante l'esplorazione del catalogo. Riprova.</div>`;
+      }
+      return;
+    }
+
+    // 3. TEXT QUERY SEARCH (with optional type and genre filtering)
+    grid.innerHTML = `<div style="color: var(--primary-indigo-light); font-size: 1.2rem; grid-column: 1/-1; padding: 20px 0;">Ricerca in corso per "${this.escapeHtml(trimmed)}"...</div>`;
 
     const currentResults = [];
+    const selectedGenreDefs = hasGenres ? SEARCH_GENRES.filter(g => this.selectedSearchGenres.has(g.id)) : [];
 
-    const updateAndRender = (newItems) => {
+    const matchesFilters = (item) => {
+      const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_') || item.media_type === 'anime');
+      const isMovie = !isSaturn && (item.media_type === 'movie' || (!item.media_type && item.title && !item.name));
+      const isTv = !isSaturn && (item.media_type === 'tv' || (!item.media_type && item.name && !item.title));
+
+      // Type filter
+      if (activeType === 'movie' && !isMovie) return false;
+      if (activeType === 'tv' && !isTv) return false;
+      if (activeType === 'anime' && !isSaturn) return false;
+
+      // Genre filter (if any selected)
+      if (hasGenres) {
+        if (isSaturn) {
+          const textCorpus = `${item.title || ''} ${item.name || ''} ${item.overview || ''}`.toLowerCase();
+          const matchesAny = selectedGenreDefs.some(g => textCorpus.includes(g.name.toLowerCase()));
+          if (!matchesAny && selectedGenreDefs.length > 0) return false;
+        } else if (Array.isArray(item.genre_ids)) {
+          const expectedIds = isTv
+            ? selectedGenreDefs.map(g => g.tvGenre)
+            : selectedGenreDefs.map(g => g.movieGenre);
+          const hasAll = expectedIds.every(id => item.genre_ids.includes(id));
+          if (!hasAll) return false;
+        }
+      }
+      return true;
+    };
+
+    const updateAndRender = (newItems, isTmdb = false) => {
       if (this.searchRequestId !== currentSearchId) return;
 
-      // Merge newItems into currentResults, deduplicating by item id
+      const filteredItems = newItems.filter(matchesFilters);
       const seen = new Set(currentResults.map(i => String(i.id)));
-      newItems.forEach(item => {
+      filteredItems.forEach(item => {
         if (!seen.has(String(item.id))) {
           seen.add(String(item.id));
           currentResults.push(item);
         }
       });
 
-      // Sort: DUB Anime first, then TMDB/available contents, then SUB anime
+      // Sort: DUB Anime first (if anime), then TMDB/available contents, then SUB anime
       currentResults.sort((a, b) => {
         const aIsSaturn = (a.source === 'animesaturn' || String(a.id).startsWith('saturn_'));
         const bIsSaturn = (b.source === 'animesaturn' || String(b.id).startsWith('saturn_'));
@@ -2963,33 +3286,156 @@ class RoxyApp {
         if (aIsSaturn && !aDub && !bIsSaturn) return 1;
         if (bIsSaturn && !bDub && !aIsSaturn) return -1;
 
-        return 0;
+        const aAvail = CatalogService.isItemAvailable(a) ? 1 : 0;
+        const bAvail = CatalogService.isItemAvailable(b) ? 1 : 0;
+        if (aAvail !== bAvail) return bAvail - aAvail;
+
+        return (b.popularity || 0) - (a.popularity || 0);
       });
 
+      this.searchCurrentResults = [...currentResults];
+      if (isTmdb && newItems.length >= 10) {
+        this.searchHasMore = true;
+      }
+
       if (currentResults.length === 0) {
-        grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.2rem; grid-column: 1/-1;">Nessun risultato trovato per "${trimmed}".</div>`;
+        grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.2rem; grid-column: 1/-1; padding: 30px; text-align: center;">Nessun risultato trovato per "${this.escapeHtml(trimmed)}" con i filtri selezionati.</div>`;
+        if (loadMoreContainer) loadMoreContainer.style.display = 'none';
         return;
       }
 
       grid.innerHTML = currentResults.map(item => this.getMediaCardHtml(item)).join('');
-
-      // Reattach click and touch tap listeners
       this.attachCardClickHandlers(grid, currentResults);
+
+      if (loadMoreContainer) {
+        loadMoreContainer.style.display = this.searchHasMore ? 'flex' : 'none';
+      }
     };
 
-    // 1. Launch TMDB search -> update immediately upon response
-    TMDBService.search(trimmed).then(tmdbRes => {
-      if (Array.isArray(tmdbRes) && tmdbRes.length > 0) {
-        updateAndRender(tmdbRes);
-      }
-    }).catch(err => console.warn('[Roxy] TMDB search warning:', err));
+    // 1. Launch TMDB search if activeType !== 'anime'
+    if (activeType !== 'anime') {
+      TMDBService.search(trimmed, 1).then(tmdbRes => {
+        if (Array.isArray(tmdbRes) && tmdbRes.length > 0) {
+          updateAndRender(tmdbRes, true);
+        } else if (currentResults.length === 0 && activeType !== 'all') {
+          grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.2rem; grid-column: 1/-1; padding: 30px; text-align: center;">Nessun risultato trovato per "${this.escapeHtml(trimmed)}".</div>`;
+        }
+      }).catch(err => console.warn('[Roxy] TMDB search warning:', err));
+    }
 
-    // 2. Launch AnimeSaturn search -> update & reorder immediately upon response
-    AnimeSaturnService.search(trimmed).then(saturnRes => {
-      if (Array.isArray(saturnRes) && saturnRes.length > 0) {
-        updateAndRender(saturnRes);
+    // 2. Launch AnimeSaturn search if activeType === 'all' || activeType === 'anime'
+    if (activeType === 'all' || activeType === 'anime') {
+      AnimeSaturnService.search(trimmed).then(saturnRes => {
+        if (Array.isArray(saturnRes) && saturnRes.length > 0) {
+          updateAndRender(saturnRes, false);
+        } else if (currentResults.length === 0 && activeType === 'anime') {
+          grid.innerHTML = `<div style="color: var(--text-muted); font-size: 1.2rem; grid-column: 1/-1; padding: 30px; text-align: center;">Nessun anime trovato per "${this.escapeHtml(trimmed)}".</div>`;
+        }
+      }).catch(err => console.warn('[Roxy] AnimeSaturn search warning:', err));
+    }
+  }
+
+  async loadMoreSearchResults() {
+    if (!this.searchHasMore || this.searchIsLoadingMore) return;
+    this.searchIsLoadingMore = true;
+
+    const loadMoreBtn = document.getElementById('btn-search-load-more');
+    const labelSpan = loadMoreBtn?.querySelector('.load-more-label');
+    const spinnerSpan = loadMoreBtn?.querySelector('.load-more-spinner');
+
+    if (loadMoreBtn) loadMoreBtn.classList.add('loading');
+    if (labelSpan) labelSpan.style.display = 'none';
+    if (spinnerSpan) spinnerSpan.style.display = 'inline-flex';
+
+    const nextPage = this.searchCurrentPage + 1;
+    const trimmed = this.searchCurrentQuery;
+    const hasGenres = this.selectedSearchGenres && this.selectedSearchGenres.size > 0;
+    const activeType = this.searchTypeFilter || 'all';
+    const grid = document.getElementById('search-results-grid');
+
+    const selectedGenreDefs = hasGenres ? SEARCH_GENRES.filter(g => this.selectedSearchGenres.has(g.id)) : [];
+    const movieGenreIds = selectedGenreDefs.map(g => g.movieGenre).filter(Boolean);
+    const tvGenreIds = selectedGenreDefs.map(g => g.tvGenre).filter(Boolean);
+
+    try {
+      let rawNewItems = [];
+
+      if (!trimmed && hasGenres) {
+        // Nameless genre exploration next page
+        rawNewItems = await TMDBService.discoverByMultipleGenres(
+          movieGenreIds,
+          tvGenreIds,
+          activeType,
+          nextPage
+        );
+      } else if (trimmed && activeType !== 'anime') {
+        // Text query search next page
+        const tmdbRes = await TMDBService.search(trimmed, nextPage);
+        rawNewItems = tmdbRes || [];
       }
-    }).catch(err => console.warn('[Roxy] AnimeSaturn search warning:', err));
+
+      // Filter by type & genres
+      const filteredNewItems = rawNewItems.filter(item => {
+        const isSaturn = (item.source === 'animesaturn' || String(item.id).startsWith('saturn_') || item.media_type === 'anime');
+        const isMovie = !isSaturn && (item.media_type === 'movie' || (!item.media_type && item.title && !item.name));
+        const isTv = !isSaturn && (item.media_type === 'tv' || (!item.media_type && item.name && !item.title));
+
+        if (activeType === 'movie' && !isMovie) return false;
+        if (activeType === 'tv' && !isTv) return false;
+        if (activeType === 'anime' && !isSaturn) return false;
+
+        if (hasGenres && Array.isArray(item.genre_ids)) {
+          const expectedIds = isTv ? selectedGenreDefs.map(g => g.tvGenre) : selectedGenreDefs.map(g => g.movieGenre);
+          if (!expectedIds.every(id => item.genre_ids.includes(id))) return false;
+        }
+        return true;
+      });
+
+      const seen = new Set(this.searchCurrentResults.map(i => String(i.id)));
+      const uniqueNewItems = [];
+      filteredNewItems.forEach(item => {
+        if (!seen.has(String(item.id))) {
+          seen.add(String(item.id));
+          uniqueNewItems.push(item);
+          this.searchCurrentResults.push(item);
+        }
+      });
+
+      if (uniqueNewItems.length > 0 && grid) {
+        if (!trimmed && hasGenres) {
+          uniqueNewItems.sort((a, b) => {
+            const aAvail = CatalogService.isItemAvailable(a) ? 1 : 0;
+            const bAvail = CatalogService.isItemAvailable(b) ? 1 : 0;
+            if (aAvail !== bAvail) return bAvail - aAvail;
+            return (b.popularity || 0) - (a.popularity || 0);
+          });
+        }
+
+        const html = uniqueNewItems.map(item => this.getMediaCardHtml(item)).join('');
+        grid.insertAdjacentHTML('beforeend', html);
+        this.attachCardClickHandlers(grid, this.searchCurrentResults);
+
+        this.searchCurrentPage = nextPage;
+        if (uniqueNewItems.length < 8) {
+          this.searchHasMore = false;
+        }
+      } else {
+        this.searchHasMore = false;
+      }
+    } catch (err) {
+      console.warn('[Roxy] Error loading more search results:', err);
+      this.searchHasMore = false;
+    } finally {
+      this.searchIsLoadingMore = false;
+      const loadMoreContainer = document.getElementById('search-load-more-container');
+      if (loadMoreBtn) loadMoreBtn.classList.remove('loading');
+      if (labelSpan) labelSpan.style.display = 'inline';
+      if (spinnerSpan) spinnerSpan.style.display = 'none';
+
+      if (loadMoreContainer) {
+        loadMoreContainer.style.display = this.searchHasMore ? 'flex' : 'none';
+      }
+    }
   }
 
   // =========================================================================

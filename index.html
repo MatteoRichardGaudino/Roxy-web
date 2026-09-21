@@ -207,15 +207,48 @@
               <circle cx="11" cy="11" r="8"></circle>
               <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
-            <input type="text" id="search-input" class="search-input-field" placeholder="Cerca film, serie TV, attori..." autocomplete="off" />
+            <input type="text" id="search-input" class="search-input-field" placeholder="Cerca film, serie TV, attori o seleziona i generi in basso..." autocomplete="off" />
             <button id="search-clear-btn" class="search-clear-btn" style="display: none;">✕</button>
           </div>
         </div>
+
+        <!-- Search Filters & Genre Exploration -->
+        <div class="search-filters-bar" id="search-filters-bar">
+          <div class="search-type-filters">
+            <button type="button" class="search-type-pill active navigable focus-compact" data-type="all">Tutti</button>
+            <button type="button" class="search-type-pill navigable focus-compact" data-type="movie">🎬 Film</button>
+            <button type="button" class="search-type-pill navigable focus-compact" data-type="tv">📺 Serie TV</button>
+            <button type="button" class="search-type-pill navigable focus-compact" data-type="anime">🪐 Anime</button>
+          </div>
+
+          <div class="search-genres-header">
+            <span class="search-genres-label">Filtra per Genere (seleziona anche più generi contemporaneamente):</span>
+            <button type="button" id="btn-clear-search-filters" class="btn-clear-filters navigable focus-compact" style="display: none;">
+              ✕ Azzera filtri
+            </button>
+          </div>
+
+          <div class="search-genre-chips" id="search-genre-chips">
+            <!-- Genre chips injected dynamically by App -->
+          </div>
+        </div>
+
         <div class="search-results-grid" id="search-results-grid">
           <div class="search-hint">
             <div class="hint-icon">🔍</div>
-            <p>Inizia a digitare il titolo per cercare tra migliaia di film e serie TV.</p>
+            <p>Digita un titolo oppure seleziona uno o più generi per esplorare il catalogo.</p>
           </div>
+        </div>
+
+        <!-- Infinite Scroll Sentinel & Load More Action -->
+        <div id="search-load-more-container" class="search-load-more-container" style="display: none;">
+          <button type="button" id="btn-search-load-more" class="btn-search-load-more navigable focus-compact">
+            <span class="load-more-label">Carica altri contenuti</span>
+            <span class="load-more-spinner" style="display: none;">
+              <span class="spinner-icon">⏳</span> Caricamento in corso...
+            </span>
+          </button>
+          <div id="search-scroll-sentinel" class="search-scroll-sentinel"></div>
         </div>
       </section>
 
@@ -737,6 +770,17 @@
           <p id="modal-overview" class="modal-overview"></p>
           <div id="modal-meta-grid" class="modal-meta-grid"></div>
           <div id="modal-episodes-container" class="modal-episodes-section" style="display: none;"></div>
+
+          <!-- Similar Titles Section ("Simile a...") -->
+          <div id="modal-similar-container" class="modal-similar-section" style="display: none;">
+            <div class="similar-section-header">
+              <h3 class="modal-section-title">
+                <span>✨ Titoli Simili</span>
+                <span id="modal-similar-count" class="similar-count-badge">0</span>
+              </h3>
+            </div>
+            <div class="row-carousel modal-similar-carousel" id="carousel-modal-similar"></div>
+          </div>
 
           <!-- Social Comments Section -->
           <div class="modal-comments-section">
