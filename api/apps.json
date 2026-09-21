@@ -24,9 +24,9 @@
         "rootRequired": false,
         "ipkUrl": "https://github.com/MatteoRichardGaudino/Roxy-web/releases/download/v1.0.2/com.roxy.stream_1.0.2_all.ipk",
         "ipkHash": {
-          "sha256": "3152b9b0d7a0d370d258954bf22dc70a7405a5616c896c825999b34793ed304f"
+          "sha256": "7f2d89bfd4fabcea3c852bb22593502c89b64b3adebe5afcf873f75574c2ce47"
         },
-        "ipkSize": 3842922
+        "ipkSize": 3843436
       },
       "pool": "main",
       "category": "multimedia",
