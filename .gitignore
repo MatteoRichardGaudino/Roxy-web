@@ -1,0 +1,10 @@
+﻿webOS_TV_26_Simulator_1.5.0/
+dist/
+node_modules/
+.idea/
+.vscode/
+*.ipk
+intex.html
+generate_assets.ps1
+.DS_Store
+Thumbs.db

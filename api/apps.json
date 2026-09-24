@@ -1,0 +1,37 @@
+{
+  "paging": {
+    "page": 1,
+    "count": 1,
+    "maxPage": 1,
+    "itemsTotal": 1
+  },
+  "packages": [
+    {
+      "id": "com.roxy.stream",
+      "title": "Roxy",
+      "version": "1.0.8",
+      "type": "web",
+      "iconUri": "https://matteorichardgaudino.github.io/Roxy-web/assets/icon.png",
+      "manifestUrl": "https://matteorichardgaudino.github.io/Roxy-web/api/com.roxy.stream.manifest.json",
+      "manifest": {
+        "id": "com.roxy.stream",
+        "version": "1.0.8",
+        "type": "web",
+        "title": "Roxy",
+        "appDescription": "Roxy - Client Streaming OLED per LG webOS (Film, Serie TV, Anime e Community)",
+        "iconUri": "https://matteorichardgaudino.github.io/Roxy-web/assets/icon.png",
+        "sourceUrl": "https://github.com/MatteoRichardGaudino/Roxy-web",
+        "rootRequired": false,
+        "ipkUrl": "https://github.com/MatteoRichardGaudino/Roxy-web/releases/download/v1.0.8/com.roxy.stream_1.0.8_all.ipk",
+        "ipkHash": {
+          "sha256": "6e70f02606457c54b85472ac5818feaaba8716f0a837e37713b1bae0a3da6ac1"
+        },
+        "ipkSize": 4025326
+      },
+      "pool": "main",
+      "category": "multimedia",
+      "shortDescription": "Client streaming OLED per Film, Serie TV e Anime con community social.",
+      "description": "Roxy è un client multimediale per LG webOS ottimizzato per pannelli OLED con supporto per VixSrc, AnimeSaturn, recensioni e sync multi-utente."
+    }
+  ]
+}
