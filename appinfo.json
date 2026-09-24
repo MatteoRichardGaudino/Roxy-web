@@ -1,0 +1,32 @@
+{
+  "id": "com.roxy.stream",
+  "version": "1.0.9",
+  "vendor": "Roxy",
+  "type": "web",
+  "main": "index.html",
+  "title": "Roxy",
+  "icon": "assets/icon.png",
+  "largeIcon": "assets/largeIcon.png",
+  "bgImage": "assets/bgImage.png",
+  "splashBackground": "assets/splashBackground.png",
+  "uiRevision": "2",
+  "resolution": "1920x1080",
+  "handlesRelaunch": true,
+  "disableBackHistoryAPI": true,
+  "supportTouchMode": false,
+  "allowAudioGuidance": false,
+  "allowThirdPartyScript": true,
+  "trustLevel": "default",
+  "requiredPermissions": [
+    "media.operation",
+    "media.controller",
+    "system.storage",
+    "settings.read",
+    "settings.query",
+    "tv.display"
+  ],
+  "requiredACG": [],
+  "accessibility": {
+    "audioGuidance": false
+  }
+}
