@@ -1,0 +1,15 @@
+{
+  "id": "com.roxy.stream",
+  "version": "1.1.1",
+  "type": "web",
+  "title": "Roxy",
+  "appDescription": "Roxy - Client Streaming OLED per LG webOS (Film, Serie TV, Anime e Community)",
+  "iconUri": "https://matteorichardgaudino.github.io/Roxy-web/assets/icon.png",
+  "sourceUrl": "https://github.com/MatteoRichardGaudino/Roxy-web",
+  "rootRequired": false,
+  "ipkUrl": "https://github.com/MatteoRichardGaudino/Roxy-web/releases/download/release-29/com.roxy.stream_1.1.1_all.ipk",
+  "ipkHash": {
+    "sha256": "c676b1615de6155655c48a93098f12335382b5aab5321a54e119e347adc29209"
+  },
+  "ipkSize": 5403372
+}
