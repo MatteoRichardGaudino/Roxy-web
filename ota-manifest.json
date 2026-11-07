@@ -1,0 +1,15 @@
+{
+  "appName": "Roxy",
+  "version": "1.1.10",
+  "otaVersion": "1.1.10",
+  "buildTime": "2026-11-07T12:52:40.036Z",
+  "bundleFile": "roxy-ota.enc",
+  "bundleUrl": "https://matteorichardgaudino.github.io/Roxy-web/roxy-ota.enc",
+  "sha256": "fd2a92ac11117f749f04aed8aa0251501a3803d05b3924e1ee58e4c99850114e",
+  "sizeBytes": 410942,
+  "authCheck": {
+    "salt": "L10M4hPq7+/For1kZFRWrA==",
+    "iv": "XI10qyUUPWair5VI",
+    "data": "e7frVooejPwp6cqoiBRw0BBxYpHyWdimmT8sNlM="
+  }
+}

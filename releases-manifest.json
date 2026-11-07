@@ -1,0 +1,45 @@
+{
+  "releaseTitle": "Roxy Release #35",
+  "releaseTag": "release-35",
+  "releaseCounter": 35,
+  "updatedAt": "2026-11-07T12:54:52.262Z",
+  "versions": {
+    "windows": "1.1.2",
+    "macos": "1.1.2",
+    "webos": "1.1.1",
+    "android": "1.1.1",
+    "ios": "1.1.2",
+    "ota": "1.1.10"
+  },
+  "authCheck": {
+    "salt": "L10M4hPq7+/For1kZFRWrA==",
+    "iv": "XI10qyUUPWair5VI",
+    "data": "e7frVooejPwp6cqoiBRw0BBxYpHyWdimmT8sNlM="
+  },
+  "downloads": {
+    "Roxy-Setup-1.1.2.exe": {
+      "originalName": "Roxy-Setup-1.1.2.exe",
+      "ext": ".exe",
+      "url": "https://github.com/MatteoRichardGaudino/Roxy-web/releases/download/release-35/Roxy-Setup-1.1.2.exe",
+      "version": "1.1.2"
+    },
+    "Roxy-Portable-1.1.2.exe": {
+      "originalName": "Roxy-Portable-1.1.2.exe",
+      "ext": ".exe",
+      "url": "https://github.com/MatteoRichardGaudino/Roxy-web/releases/download/release-35/Roxy-Portable-1.1.2.exe",
+      "version": "1.1.2"
+    },
+    "Roxy-1.1.2.dmg": {
+      "originalName": "Roxy-1.1.2.dmg",
+      "ext": ".dmg",
+      "url": "https://github.com/MatteoRichardGaudino/Roxy-web/releases/download/release-35/Roxy-1.1.2.dmg",
+      "version": "1.1.2"
+    },
+    "com.roxy.stream_1.1.1_all.ipk": {
+      "originalName": "com.roxy.stream_1.1.1_all.ipk",
+      "ext": ".ipk",
+      "url": "https://github.com/MatteoRichardGaudino/Roxy-web/releases/download/release-35/com.roxy.stream_1.1.1_all.ipk",
+      "version": "1.1.1"
+    }
+  }
+}
